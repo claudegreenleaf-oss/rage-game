@@ -127,6 +127,8 @@ export interface LevelData {
   verified?: boolean;
   /** The playable credits roll. */
   credits?: boolean;
+  /** Intended deaths for the solution path (used to suggest a restart when the player is far past it). */
+  par?: number;
 }
 
 // ---------------------------------------------------------------------------

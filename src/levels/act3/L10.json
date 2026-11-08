@@ -73,5 +73,6 @@
     }
   ],
   "zones": [],
-  "events": []
+  "events": [],
+  "par": 5
 }

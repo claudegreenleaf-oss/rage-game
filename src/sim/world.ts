@@ -37,6 +37,8 @@ export class World {
   pipAlive = true;
   corpses: Corpse[] = [];
   deathCount = 0;
+  /** Deaths since the level was (re)started with R. */
+  deathsSinceRestart = 0;
   won = false;
   hitstop = 0;
   respawnTimer = 0;
@@ -154,6 +156,7 @@ export class World {
   }
 
   restart(): void {
+    this.deathsSinceRestart = 0;
     this.corpses = [];
     this.revealed.clear();
     this.won = false;
@@ -177,6 +180,7 @@ export class World {
     if (!this.pipAlive || this.won) return;
     this.pipAlive = false;
     this.deathCount++;
+    this.deathsSinceRestart++;
     this.lastDeath = info.kind;
     this.pendingDeath = info;
     this.hitstop = HITSTOP;
@@ -189,6 +193,16 @@ export class World {
     this.pendingDeath = null;
     if (info) spawnCorpse(this, info);
     this.respawnTimer = RESPAWN_DELAY;
+  }
+
+  /**
+   * The player has probably painted themselves into a corner: well past the level's par since the last R,
+   * or a long stretch without a death or a win after dying at least once. The UI shows an R prompt.
+   */
+  get suggestRestart(): boolean {
+    if (this.won || this.deathsSinceRestart === 0) return false;
+    const par = this.level.par ?? 3;
+    return this.deathsSinceRestart >= par + 2 || (this.pipAlive && this.lifeTick > 40 * 60);
   }
 
   newCorpseId(): number { return this.nextCorpseId++; }

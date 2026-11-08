@@ -302,7 +302,11 @@ add('extra', fromAscii(`
   events: [{ trigger: { type: 'playerEnters', zone: 'last' }, actions: [{ type: 'popSpike', target: 'p1' }], once: true }],
 }));
 
+/** Intended deaths on the solution path (matches tests/replays.test.ts). */
+const PAR: Record<string, number> = { L01: 3, L02: 2, L03: 2, L04: 3, L05: 3, L06: 2, L07: 3, L08: 1, L09: 3, L10: 5, L11: 3, L12: 3, credits: 1 };
+
 for (const { dir, level } of levels) {
+  if (PAR[level.id] !== undefined) level.par = PAR[level.id];
   mkdirSync(`src/levels/${dir}`, { recursive: true });
   writeFileSync(`src/levels/${dir}/${level.id}.json`, JSON.stringify(level, null, 2) + '\n');
 }

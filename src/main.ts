@@ -6,7 +6,7 @@ import { Overlay } from './scenes/Overlay';
 import { Title } from './scenes/Title';
 import { LevelSelect } from './scenes/LevelSelect';
 import { ActCard } from './scenes/ActCard';
-import { Game, type GameData } from './scenes/Game';
+import { Game, pendingScript, type GameData } from './scenes/Game';
 import { Hud } from './scenes/Hud';
 import { Pause } from './scenes/Pause';
 import { Credits } from './scenes/Credits';
@@ -33,7 +33,7 @@ const game = new Phaser.Game({
 });
 
 declare global {
-  interface Window { __dt?: { game: Phaser.Game; getWorld(): World | null; startLevel(id: string): void; runScript(src: string): void; goto(key: string, data?: object): void } }
+  interface Window { __dt?: { game: Phaser.Game; getWorld(): World | null; startLevel(id: string): void; runScript(src: string): void; armScript(id: string, src: string): void; goto(key: string, data?: object): void } }
 }
 
 window.__dt = {
@@ -58,6 +58,10 @@ window.__dt = {
     }, 50);
   },
   /** Feed a solution script (see src/solutions) to the running level. */
+  /** Arm a solution script to start on tick 1 of the next time level `id` starts. */
+  armScript(id: string, src: string): void {
+    pendingScript.set(id, unrle(compileScript(src)));
+  },
   runScript(src: string): void {
     const g = game.scene.getScene('Game') as Game | null;
     if (g) g.scripted = unrle(compileScript(src));

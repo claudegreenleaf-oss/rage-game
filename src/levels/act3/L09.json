@@ -45,5 +45,6 @@
     }
   ],
   "zones": [],
-  "events": []
+  "events": [],
+  "par": 3
 }

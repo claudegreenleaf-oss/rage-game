@@ -115,5 +115,6 @@
       "once": true
     }
   ],
-  "credits": true
+  "credits": true,
+  "par": 1
 }

@@ -394,3 +394,40 @@ describe('signs and events', () => {
     expect(w.obj.popups[0]!.up).toBe(false); // the level forgets
   });
 });
+
+describe('softlock relief', () => {
+  it('holding ↓ while walking away drags a body off a wall', () => {
+    const w = new World(mk(`
+############
+#..........#
+#..........#
+#S.........#
+############
+`));
+    const c = addCorpse(w, 1, 4, 0); // against the left wall
+    w.pip.x = 2 * U; w.pip.px = w.pip.x; // standing right next to it
+    hold(w, 0, 10);
+    expect(c.x).toBe(1 * U);
+    hold(w, Btn.Right, 20); // plain walking leaves it behind
+    expect(c.x).toBe(1 * U);
+    w.pip.x = 2 * U; w.pip.vx = 0;
+    hold(w, 0, 5);
+    hold(w, Btn.Right | Btn.Down, 40);
+    expect(c.x).toBeGreaterThan(2 * U);
+    expect(w.pip.x).toBe(c.x + c.w);
+  });
+
+  it('suggests R when the player is well past par since the last restart', () => {
+    const w = new World(mk(`
+##########
+#S.......#
+##..######
+`, { par: 1 } as never));
+    w.level.par = 1;
+    expect(w.suggestRestart).toBe(false);
+    for (let i = 0; i < 3; i++) { w.killPip({ kind: 'pit', x: 0, bottom: 0 }); hold(w, 0, 40); }
+    expect(w.suggestRestart).toBe(true);
+    w.step(Btn.Restart);
+    expect(w.suggestRestart).toBe(false);
+  });
+});

@@ -79,11 +79,31 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
   let carry = 0;
   if (p.grounded && support?.kind === 'tile') carry = support.glyph === '}' ? CONVEYOR_SPEED : support.glyph === '{' ? -CONVEYOR_SPEED : 0;
 
-  moveX(w, p.vx + carry);
+  if (!(input & Btn.Down && dir !== 0 && p.grounded && drag(w, dir))) moveX(w, p.vx + carry);
   kickSkeletons(w);
   moveY(w);
   if (p.dropThrough > 0) p.dropThrough--;
   p.airTicks = p.grounded ? 0 : p.airTicks + 1;
+}
+
+/**
+ * Hold ↓ and walk away from a body you're touching to drag it along (so bodies are never stuck
+ * against a wall). Returns true if Pip is dragging this tick.
+ */
+function drag(w: World, dir: number): boolean {
+  const p = w.pip;
+  const c = w.corpses.find((k) => pushable(k) && k.grounded && k.y < p.y + p.h && k.y + k.h > p.y + p.h - 24 &&
+    (dir > 0 ? k.x + k.w === p.x : k.x === p.x + p.w));
+  if (!c) return false;
+  const speed = PUSH_SPEED[c.stage];
+  if (Math.abs(p.vx) > speed) p.vx = dir * speed;
+  const solids = w.solidsAround(p, p.vx, 0, -1, false);
+  const moved = sweepX(p, p.vx, solids).d;
+  if (moved === 0) { p.vx = 0; return true; }
+  p.x += moved;
+  w.moveEntity(c.id, moved, 0, 0, true);
+  if (w.tick % 10 === 0) w.fx.push({ t: 'push', corpse: c.id });
+  return true;
 }
 
 function moveX(w: World, dx: number): void {

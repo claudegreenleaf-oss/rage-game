@@ -13,6 +13,7 @@ Built with Phaser 3, TypeScript and Vite. All art is drawn in code and every sou
 | ← → / A D | Move |
 | Space / ↑ / W | Jump (hold for a higher jump) |
 | ↓ / S | Drop through a bone platform |
+| ↓ + walk away | Drag a body you're touching (pull it off a wall) |
 | R | Restart the level and clear all corpses |
 | Esc | Pause |
 | M | Mute |
@@ -23,6 +24,8 @@ The rules, each taught by one level:
 - **Every death ages the others.** Fresh (solid, weight 2) → Rot (bouncy, weight 1) → Skeleton (a one-way bone platform, weight 0). Pits and lasers leave no body and age nothing.
 - **How you die shapes the body.** Spikes pin it (a floor spike becomes safe to walk on, a wall spike becomes a ledge), crushers make slabs, water makes rafts.
 - **The level forgets, the dead remember.** On respawn every trap, platform, door and sign resets. Corpses keep their place, so a body on a plate keeps holding it down.
+
+If you've died well past a level's par since your last restart, the HUD suggests **R**: a bad pile of bodies is always one keypress from a clean slate.
 
 There are 12 levels in 3 acts, then playable credits. Beating Act 1 unlocks the level editor (open the game with `?editor` to unlock it straight away).
 

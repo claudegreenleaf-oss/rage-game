@@ -76,5 +76,6 @@
   "current": {
     "dir": 1,
     "speed": 2.5
-  }
+  },
+  "par": 3
 }

@@ -58,6 +58,9 @@ export class Game extends Phaser.Scene {
   create(): void {
     const d = this.data_;
     this.world = new World(d.level);
+    // Test hook: a script armed for this level starts on its very first tick.
+    const armed = pendingScript.get(d.level.id);
+    if (armed) { this.scripted = [...armed]; pendingScript.delete(d.level.id); }
     this.lastDeaths = 0;
     const cam = this.cameras.main;
     cam.setBackgroundColor('rgba(0,0,0,0)');
@@ -242,6 +245,9 @@ export class Game extends Phaser.Scene {
 }
 
 /** Start campaign level `index`, with the act card first if it opens an act. */
+/** Input scripts waiting for a level to start (Playwright/dev hook). */
+export const pendingScript = new Map<string, number[]>();
+
 export function startLevel(scene: Phaser.Scene, index: number, forceCard = false): void {
   const level = LEVELS[index];
   if (!level) return;
