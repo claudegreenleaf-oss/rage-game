@@ -127,6 +127,77 @@ export type ActionType = Action['type'];
 
 export interface LevelEvent { trigger: Trigger; actions: Action[]; once?: boolean }
 
+// ---------------------------------------------------------------------------
+// Customization (editor): art layers, pixelated images, audio, rules
+// ---------------------------------------------------------------------------
+
+/**
+ * Decorative tiles painted behind (bg) or in front of (fg) the playfield. One char per tile;
+ * '.' is empty, other chars index DECOR_IDS (a = DECOR_IDS[0], b = DECOR_IDS[1], ...). Purely visual.
+ */
+export const DECOR_IDS = [
+  'panel', 'panelDark', 'panelCracked', 'window', 'windowBroken', 'monitor', 'monitorDead', 'server',
+  'tank', 'tankBroken', 'pipeH', 'pipeV', 'cable', 'vent', 'grate', 'lamp',
+  'vine', 'ivy', 'moss', 'fern', 'roots', 'mushroom', 'puddle', 'bones',
+  'crate', 'barrel', 'console', 'hazardStripe', 'poster', 'sign', 'chain', 'debris',
+] as const;
+export type DecorId = (typeof DECOR_IDS)[number];
+export const decorChar = (i: number): string => 'abcdefghijklmnopqrstuvwxyzABCDEF'[i] ?? '.';
+export const decorIndex = (ch: string): number => 'abcdefghijklmnopqrstuvwxyzABCDEF'.indexOf(ch);
+
+/** A user image, pixelated in the editor to a small palette. */
+export interface PixelArt {
+  id: string;
+  /** Top-left in tiles (fractional ok). */
+  x: number; y: number;
+  /** Size in art pixels (1 art pixel = 1 game pixel; 16 per tile). */
+  w: number; h: number;
+  /** Up to 32 colours as '#rrggbb'; index 255 = transparent. */
+  palette: string[];
+  /** base64 of w*h palette indices (1 byte each), row-major. */
+  data: string;
+  layer: 'bg' | 'fg';
+  /** 1 = moves with the level, < 1 = distant parallax. */
+  parallax?: number;
+  opacity?: number;
+}
+
+/** A user-composed theme for a level: a looping step sequence. */
+export interface SongData {
+  name?: string;
+  bpm: number;
+  /** Steps per loop (16th notes). */
+  steps: number;
+  tracks: Array<{
+    instrument: 'lead' | 'pulse' | 'bell' | 'pad' | 'bass' | 'drums';
+    volume: number; // 0..1
+    /** [step, midi pitch, length in steps]. For drums: pitch 0 kick, 1 snare, 2 hat, 3 clap. */
+    notes: Array<[number, number, number]>;
+  }>;
+}
+
+export interface LevelAudio {
+  /** Built-in music slot (0 title, 1-3 acts, 4 credits) when there's no custom theme. */
+  music?: number;
+  theme?: SongData;
+  /** ZzFX parameter overrides keyed by sound name (jump, land, squeak, ...). */
+  sfx?: Record<string, number[]>;
+}
+
+/** Rule tweaks a level can make. All optional; defaults are the normal game. */
+export interface LevelRules {
+  /** Corpse cap (1-6, default 3). */
+  maxCorpses?: number;
+  /** false: deaths don't age the other bodies. */
+  aging?: boolean;
+  /** Multipliers (0.5-2). */
+  gravity?: number;
+  jump?: number;
+  speed?: number;
+  /** Multiplier on the Rot bounce height. */
+  bounce?: number;
+}
+
 export interface LevelData {
   version: 1;
   id: string;
@@ -153,6 +224,13 @@ export interface LevelData {
   abilities?: { wallJump?: boolean };
   /** Passages to other rooms (connected world only). */
   exits?: Exit[];
+  /** Decor layers: `height` rows of `width` chars each (see DECOR_IDS). */
+  decor?: { bg?: string[]; fg?: string[] };
+  images?: PixelArt[];
+  audio?: LevelAudio;
+  rules?: LevelRules;
+  /** Visual palette override for the level (act palette index 1-3). */
+  palette?: number;
   /** Intended deaths for the solution path (used to suggest a restart when the player is far past it). */
   par?: number;
 }

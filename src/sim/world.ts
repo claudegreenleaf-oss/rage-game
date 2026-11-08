@@ -4,7 +4,7 @@ import {
   type Box, type Corpse, type DeathType, type LevelData, type Player, type SimEvent, type TileGlyph,
 } from './types';
 import {
-  HITSTOP, MAX_FALL, PIP_H, PIP_W, PIP_WEIGHT, RESPAWN_DELAY, STAGE_WEIGHT,
+  GRAVITY, GRAVITY_CUT, HITSTOP, JUMP_V, MAX_FALL, PIP_H, PIP_W, PIP_WEIGHT, RESPAWN_DELAY, RUN_SPEED, STAGE_WEIGHT,
 } from './constants';
 import { FREE_SPOT_OFFSETS, overlaps, overlapX, sweptRegion, xOverlapLen, type Solid } from './physics';
 import { updatePlayer } from './player';
@@ -73,6 +73,8 @@ export class World {
   exitHit: string | null = null;
   /** Ticks after entering a room during which exits are ignored (so Pip doesn't bounce straight back). */
   exitGrace = 0;
+  /** Movement constants after the level's rule multipliers. */
+  readonly tune: { run: number; jump: number; gravity: number; gravityCut: number; maxFall: number };
   private lastBench: string | null = null;
   private prevInput = 0;
   private nextCorpseId = 1;
@@ -83,6 +85,12 @@ export class World {
     this.W = level.width;
     this.H = level.height;
     this.collected = opts.collected ?? new Set();
+    const r = level.rules ?? {};
+    const k = (v: number | undefined) => Math.max(0.5, Math.min(2, v ?? 1));
+    this.tune = {
+      run: Math.round(RUN_SPEED * k(r.speed)), jump: Math.round(JUMP_V * k(r.jump)),
+      gravity: Math.max(1, Math.round(GRAVITY * k(r.gravity))), gravityCut: Math.max(2, Math.round(GRAVITY_CUT * k(r.gravity))), maxFall: MAX_FALL,
+    };
     if (opts.entry) { this.checkpoint = opts.entry; this.exitGrace = 20; }
     this.events = new EventEngine(this);
     this.resetLevel();

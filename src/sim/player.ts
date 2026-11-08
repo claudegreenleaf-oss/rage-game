@@ -1,8 +1,8 @@
 // Pip: input -> velocity -> swept movement with pushing, step-up, one-way platforms and Rot bounces.
 import { Btn, type Corpse } from './types';
 import {
-  AIR_ACCEL, AIR_DECEL, BOUNCE_MIN_VY, BOUNCE_RISE, CONVEYOR_SPEED, COYOTE, GRAVITY, GRAVITY_CUT,
-  GROUND_ACCEL, GROUND_DECEL, JUMP_BUFFER, JUMP_V, MAX_FALL, PUSH_SPEED, RUN_SPEED, STEP_UP,
+  AIR_ACCEL, AIR_DECEL, BOUNCE_MIN_VY, BOUNCE_RISE, CONVEYOR_SPEED, COYOTE, GRAVITY,
+  GROUND_ACCEL, GROUND_DECEL, JUMP_BUFFER, PUSH_SPEED, STEP_UP,
 } from './constants';
 import { overlaps, sweepX, sweepY } from './physics';
 import { canWallJump, type World } from './world';
@@ -11,17 +11,17 @@ import { pushCorpse } from './corpse';
 const approach = (v: number, target: number, step: number): number =>
   v < target ? Math.min(v + step, target) : Math.max(v - step, target);
 
-/** Rise (units) achieved when launched upward at `v` with normal gravity applied before each move. */
-export function riseFor(v: number): number {
+/** Rise (units) achieved when launched upward at `v` with gravity `g` applied before each move. */
+export function riseFor(v: number, g = GRAVITY): number {
   let rise = 0;
-  for (let s = v - GRAVITY; s > 0; s -= GRAVITY) rise += s;
+  for (let s = v - g; s > 0; s -= g) rise += s;
   return rise;
 }
 
 /** Smallest launch speed whose rise reaches `rise` units. */
-export function launchFor(rise: number): number {
+export function launchFor(rise: number, g = GRAVITY): number {
   let v = 0;
-  while (riseFor(v) < rise) v++;
+  while (riseFor(v, g) < rise) v++;
   return v;
 }
 
@@ -46,11 +46,12 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
   if (dir !== 0) p.facing = dir as -1 | 1;
 
   // Horizontal velocity: snappy accel/decel, no ice-skating. Extra speed from a swing carries a while.
-  const target = dir * RUN_SPEED;
+  const T = w.tune;
+  const target = dir * T.run;
   let a: number;
   if (p.grounded) a = dir !== 0 && Math.sign(p.vx) !== -dir ? GROUND_ACCEL : GROUND_DECEL;
   else a = dir !== 0 ? AIR_ACCEL : AIR_DECEL;
-  if (!p.grounded && Math.abs(p.vx) > RUN_SPEED && Math.sign(p.vx) === dir) p.vx -= Math.sign(p.vx);
+  if (!p.grounded && Math.abs(p.vx) > T.run && Math.sign(p.vx) === dir) p.vx -= Math.sign(p.vx);
   else p.vx = approach(p.vx, target, a);
 
   // Jump: buffer + coyote time.
@@ -78,15 +79,15 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
 
   let jumpedNow = false;
   if (walls && p.jumpBuffer > 0 && p.coyote <= 0 && p.wallCoyote > 0 && !p.grounded) {
-    p.vy = -(JUMP_V - 4);
-    p.vx = -p.wallDir * RUN_SPEED;
+    p.vy = -(T.jump - 4);
+    p.vx = -p.wallDir * T.run;
     p.facing = -p.wallDir as -1 | 1;
     p.jumping = true; p.bouncing = false;
     p.jumpBuffer = 0; p.wallCoyote = 0; p.wallLock = WALL_LOCK;
     jumpedNow = true;
     w.fx.push({ t: 'wallJump', x: p.x + (p.wallDir > 0 ? p.w : 0), y: p.y + (p.h >> 1), dir: -p.wallDir });
   } else if (p.jumpBuffer > 0 && p.coyote > 0) {
-    p.vy = -JUMP_V;
+    p.vy = -T.jump;
     p.jumping = true;
     p.bouncing = false;
     p.coyote = 0;
@@ -96,7 +97,7 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
     w.fx.push({ t: 'jump', x: p.x + (p.w >> 1), y: p.y + p.h });
   } else {
     const cut = p.vy < 0 && p.jumping && !p.jumpHeld;
-    p.vy = Math.min(p.vy + (cut ? GRAVITY_CUT : GRAVITY), MAX_FALL);
+    p.vy = Math.min(p.vy + (cut ? T.gravityCut : T.gravity), T.maxFall);
   }
   if (sliding && p.vy > WALL_SLIDE_MAX) {
     p.vy = WALL_SLIDE_MAX;
@@ -167,7 +168,7 @@ function hang(w: World, input: number, pressed: number): boolean {
     p.hang = null;
     p.regrab = 14;
     p.vx = Math.max(-56, Math.min(56, Math.round(vx * 1.3) + dir * 8));
-    p.vy = -Math.round(JUMP_V * 0.9) + Math.min(0, Math.round(vy * 0.5));
+    p.vy = -Math.round(w.tune.jump * 0.9) + Math.min(0, Math.round(vy * 0.5));
     p.jumping = true; p.jumpHeld = true; p.grounded = false;
     w.fx.push({ t: 'release', vine: v.id });
     w.fx.push({ t: 'jump', x: p.x + (p.w >> 1), y: p.y + p.h });
@@ -274,7 +275,7 @@ function moveY(w: World): void {
     if (hit.kind === 'corpse') {
       const c = w.corpseById(hit.id as number);
       if (c && c.stage === 1 && dy >= BOUNCE_MIN_VY) {
-        const v = launchForCached(BOUNCE_RISE - c.h);
+        const v = launchForCached(Math.round(BOUNCE_RISE * (w.level.rules?.bounce ?? 1)) - c.h, w.tune.gravity);
         p.vy = -v;
         p.bouncing = true;
         p.jumping = false;
@@ -293,9 +294,10 @@ function moveY(w: World): void {
   }
 }
 
-const launchCache = new Map<number, number>();
-function launchForCached(rise: number): number {
-  let v = launchCache.get(rise);
-  if (v === undefined) { v = launchFor(rise); launchCache.set(rise, v); }
+const launchCache = new Map<string, number>();
+function launchForCached(rise: number, g: number): number {
+  const k = `${rise}:${g}`;
+  let v = launchCache.get(k);
+  if (v === undefined) { v = launchFor(rise, g); launchCache.set(k, v); }
   return v;
 }

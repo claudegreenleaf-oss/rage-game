@@ -207,3 +207,29 @@ describe('campaign', () => {
     expect(Math.abs(c.room.pip.x - entry.x)).toBeLessThan(U);
   });
 });
+
+describe('level rules', () => {
+  const ROOM = `
+################
+#..............#
+#..............#
+#..............#
+#..............#
+#S......^......#
+################
+`;
+  it('jump multiplier and corpse cap / aging switches', () => {
+    const apex = (rules?: object) => {
+      const l = mk(ROOM); if (rules) l.rules = rules;
+      const w = new World(l); hold(w, 0, 5); const y0 = w.pip.y; let m = y0;
+      for (let i = 0; i < 50; i++) { w.step(Btn.Jump); m = Math.min(m, w.pip.y); }
+      return (y0 - m) / U;
+    };
+    expect(apex({ jump: 1.3 })).toBeGreaterThan(apex() + 1);
+    const l = mk(ROOM); l.rules = { aging: false, maxCorpses: 5 };
+    const w = new World(l);
+    for (let i = 0; i < 4; i++) { w.killPip({ kind: 'dropper', x: (3 + i * 2) * U, bottom: 6 * U }); hold(w, 0, 40); }
+    expect(w.corpses).toHaveLength(4);
+    expect(w.corpses.every((c) => c.stage === 0)).toBe(true);
+  });
+});
