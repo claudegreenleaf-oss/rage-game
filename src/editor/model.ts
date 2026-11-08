@@ -234,7 +234,7 @@ export class EditorDoc {
       return out;
     };
     const objects = this.level.objects
-      .filter((o) => o.type !== 'spawn' && inRect(r, Math.floor(o.x), Math.floor(o.y)))
+      .filter((o) => inRect(r, Math.floor(o.x), Math.floor(o.y)))
       .map((o) => shift(JSON.parse(JSON.stringify(o)) as LevelObject, -r.x, -r.y));
     return { w: r.w, h: r.h, terrain: take('terrain'), bg: take('bg'), fg: take('fg'), objects };
   }
@@ -244,7 +244,7 @@ export class EditorDoc {
     if (layers.terrain) this.rect('terrain', r, '.');
     if (layers.bg) this.rect('bg', r, '.');
     if (layers.fg) this.rect('fg', r, '.');
-    if (layers.objects) for (const o of [...this.level.objects]) if (o.type !== 'spawn' && inRect(r, Math.floor(o.x), Math.floor(o.y))) this.removeObject(o.id);
+    if (layers.objects) for (const o of [...this.level.objects]) if (inRect(r, Math.floor(o.x), Math.floor(o.y))) this.removeObject(o.id);
   }
 
   /** Stamp a clip with its top-left at (x, y). Empty decor/terrain cells in the clip don't overwrite. */

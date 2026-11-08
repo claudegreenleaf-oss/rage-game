@@ -423,6 +423,12 @@ export class Editor extends Phaser.Scene implements UiHost {
     else if (s?.kind === 'exit') d.edit(() => d.removeExit(s.id));
     else if (s?.kind === 'image') d.edit(() => d.removeImage(s.id));
     else if (this.st.marquee) { const m = this.st.marquee; d.edit(() => d.clear(m, this.layersMask())); this.st.marquee = null; }
+    else if (this.hover) {
+      // Nothing selected: delete whatever is under the cursor (an object, exit, zone or image).
+      const c = this.hover;
+      d.checkpoint();
+      if (this.eraseTopmost(c)) d.changed(); else this.ui.toast('Nothing to delete here. Select something, or right-drag to erase tiles.');
+    }
     this.select(null);
   }
 
@@ -848,11 +854,39 @@ export class Editor extends Phaser.Scene implements UiHost {
     return out;
   }
 
+  private eraseTopmost(c: Pt): boolean {
+    const st = this.st;
+    const doc = this.doc;
+    const ok = (l: 'objects' | 'zones' | 'images') => st.visible[l] && !st.locked[l];
+    if (ok('objects')) {
+      const o = doc.objectAt(c.x, c.y);
+      if (o) {
+        doc.removeObject(o.id);
+        if (o.type === 'spawn') this.ui.toast('Spawn removed. Place a new one before playtesting.');
+        return true;
+      }
+    }
+    if (ok('zones')) {
+      const e = doc.exitAt(c.x, c.y);
+      if (e) { doc.removeExit(e.id); return true; }
+      const z = doc.zoneAt(c.x, c.y);
+      if (z) { doc.removeZone(z.id); return true; }
+    }
+    if (ok('images')) {
+      const im = doc.imageAt(c.x + 0.5, c.y + 0.5);
+      if (im) { doc.removeImage(im.id); return true; }
+    }
+    return false;
+  }
+
   /** Paint or erase one brush stamp on the active layer. */
   private paintAt(c: Pt, erase: boolean): boolean {
     const st = this.st;
     const doc = this.doc;
     const layer = st.layer;
+    // Erasing takes whatever is on top at that spot first (vines, the spawn, any object, exits,
+    // zones, images), from any visible and unlocked layer, before touching the active layer's tiles.
+    if (erase && this.eraseTopmost(c)) return true;
     if (isGrid(layer)) {
       const ch = erase ? '.' : st.item[layer]?.glyph;
       if (ch === undefined) return false;

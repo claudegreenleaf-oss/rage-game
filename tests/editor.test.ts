@@ -157,3 +157,14 @@ describe('editor light sensors and dark rooms', () => {
     expect(d.level.objects.find((o) => o.id === 'g1')).not.toHaveProperty('plate');
   });
 });
+
+describe('deleting anything', () => {
+  it('clearing an area removes every object in it, the spawn and vines included', () => {
+    const doc = new EditorDoc();
+    const sp = doc.level.objects.find((o) => o.type === 'spawn')!;
+    doc.level.objects.push({ type: 'vine', id: 'v1', x: sp.x + 1, y: 1, len: 3 });
+    doc.edit(() => doc.clear({ x: 0, y: 0, w: doc.level.width, h: doc.level.height }, { terrain: false, bg: false, fg: false, objects: true }));
+    expect(doc.level.objects).toHaveLength(0);
+    expect(doc.validate().some((e) => e.includes('spawn'))).toBe(true); // flagged, not blocked
+  });
+});
