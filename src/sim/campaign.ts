@@ -23,7 +23,10 @@ export interface WorldDef {
 
 export interface ChamberAttach {
   exits?: Exit[];
-  /** Cells to clear (e.g. a doorway in the outer wall where an exit is). */
+  /**
+   * Legacy: cells to clear for a doorway. Ignored: chambers are entered at their own spawn, so their
+   * walls stay exactly as in the standalone puzzle (and its tested solution and invariants hold).
+   */
   open?: Array<{ x: number; y: number }>;
   door?: { room: string; exit: string };
 }
@@ -33,10 +36,6 @@ export function attachChamber(l: LevelData, a: ChamberAttach | undefined): Level
   if (!a) return l;
   const c: LevelData = JSON.parse(JSON.stringify(l)) as LevelData;
   c.exits = [...(c.exits ?? []), ...(a.exits ?? [])];
-  for (const cell of a.open ?? []) {
-    const row = c.tiles[cell.y];
-    if (row && cell.x >= 0 && cell.x < c.width) c.tiles[cell.y] = row.slice(0, cell.x) + '.' + row.slice(cell.x + 1);
-  }
   if (a.door) for (const o of c.objects) if (o.type === 'door') o.to = a.door;
   return c;
 }
@@ -145,6 +144,13 @@ export class Campaign {
     const e = l.exits?.find((x) => x.id === exitId);
     const from = this.roomId;
     if (!e) { this.enterAtSpawn(id); return; }
+    // Walking into a puzzle chamber starts the puzzle as designed: at its spawn, standing still,
+    // and respawning there (its tested solutions and invariants assume that start).
+    if (l.kind !== 'zone') {
+      this.room = new World(l, { collected: this.collected });
+      this.setRoom(id, from, side === 'door' ? 'door' : exitSide(l, e));
+      return;
+    }
     const entry = entryPoint(l, e);
     const s = exitSide(l, e);
     // Coming up through a floor hole: make sure Pip clears the lip.

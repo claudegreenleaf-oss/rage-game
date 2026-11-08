@@ -175,6 +175,7 @@ describe('campaign', () => {
 .......D.#
 ##########
 `, { id: 'B', props: { door: { to: { room: 'A', exit: 'east' } } } });
+  B.kind = 'zone';
   B.exits = [{ id: 'west', x: 0, y: 2, w: 1, h: 1, to: 'A', toExit: 'east' }];
   const def: WorldDef = { version: 1, name: 'test', start: { room: 'A' }, rooms: ['A', 'B'] };
 

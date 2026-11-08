@@ -1,6 +1,6 @@
 // Shared by tests/worldmap.test.ts and scripts/plan-world.ts: the order of the full run through the
 // connected world, and how a chamber is played inside the campaign.
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import type { Campaign, WorldDef } from '../src/sim/campaign';
 import type { LevelData } from '../src/sim/types';
 import { compileScript, unrle } from '../src/sim/replay';
@@ -44,23 +44,12 @@ export function worldPlan(def: WorldDef, levels: LevelData[]): PlanStep[] {
  * entrance (a few units from the standalone spawn) with walking momentum; the harness stops Pip first.
  * If the tick-exact script doesn't survive the entrance offset, it falls back to the standalone start.
  */
-export function playChamber(c: Campaign, id: string): { mode: 'entrance' | 'spawn'; ticks: number } {
-  // A chamber may have a world-specific script (when its standalone solution leans on the wall that
-  // the world entrance opens); otherwise its standalone solution is used.
-  const override = `src/solutions/world/chamber-${id}.txt`;
-  const src = existsSync(override) ? override : `src/solutions/${id}.txt`;
-  const inputs = unrle(compileScript(readFileSync(src, 'utf8')));
-  const tryRun = (): number => {
-    let t = 0;
-    for (const m of inputs) { c.step(m); t++; if (c.roomId !== id) break; }
-    for (let i = 0; i < 600 && c.roomId === id; i++) { c.step(0); t++; }
-    return c.cleared.has(id) ? t : -1;
-  };
-  c.room.pip.vx = 0; c.room.pip.vy = 0;
-  let t = tryRun();
-  if (t >= 0) return { mode: 'entrance', ticks: t };
-  c.enterAtSpawn(id);
-  t = tryRun();
-  if (t < 0) throw new Error(`chamber ${id} not solved (now in ${c.roomId})`);
-  return { mode: 'spawn', ticks: t };
+export function playChamber(c: Campaign, id: string): { mode: 'entrance'; ticks: number } {
+  // Entering a chamber starts it at its own spawn, so its standalone solution plays as tested.
+  const inputs = unrle(compileScript(readFileSync(`src/solutions/${id}.txt`, 'utf8')));
+  let t = 0;
+  for (const m of inputs) { c.step(m); t++; if (c.roomId !== id) break; }
+  for (let i = 0; i < 600 && c.roomId === id; i++) { c.step(0); t++; }
+  if (!c.cleared.has(id)) throw new Error(`chamber ${id} not solved from the world (now in ${c.roomId})`);
+  return { mode: 'entrance', ticks: t };
 }
