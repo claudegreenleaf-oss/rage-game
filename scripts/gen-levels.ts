@@ -41,7 +41,7 @@ add('act1', fromAscii(`
 `, {
   id: 'L02', name: 'Dead Weight', act: 1,
   props: {
-    s1: { text: { 0: 'Stand on the button. Nothing bad will happen.', 1: 'Something bad happened. Unrelated.' } },
+    s1: { text: { 0: 'Stand on the button. Nothing bad will happen.', 1: 'Something bad happened. Unrelated.', 3: 'Flat bodies are still heavy.' } },
     g1: { y: 1, h: 6, plate: 'pl1' },
   },
   events: [{ trigger: { type: 'playerOn', target: 'pl1' }, actions: [{ type: 'fireCrusher', target: 'c1', delay: 30 }], once: true }],
@@ -59,7 +59,7 @@ add('act1', fromAscii(`
 `, {
   id: 'L03', name: 'Leg Up', act: 1,
   props: {
-    s2: { text: { 0: "Push things. It's good for you." } },
+    s2: { text: { 0: "Push things. It's good for you.", 3: 'A body makes a fine step. Push it to the ledge.' } },
     s1: { text: { 0: 'Welcome! Mind your head.', 2: 'I did say mind your head.' } },
   },
 }));
@@ -79,7 +79,7 @@ add('act1', fromAscii(`
 `, {
   id: 'L04', name: 'Growing Old', act: 1,
   props: {
-    s2: { text: { 0: 'Old you is softer. Use that.' } },
+    s2: { text: { 0: 'Old you is softer. Use that.', 4: 'Rot bounces. Land on it from above.' } },
     s1: { text: { 0: 'Nearly there. Look up. Or don\'t.', 3: "Every death ages the others. I don't make the rules. (I do.)" } },
   },
 }));
@@ -102,7 +102,7 @@ add('act2', fromAscii(`
   id: 'L05', name: 'Shallow End', act: 2,
   current: { dir: 1, speed: 2.5 },
   props: {
-    s2: { text: { 0: 'Shallow end →', 1: 'Deep end, technically.', 3: 'Floaties: you. Pool: also you.' } },
+    s2: { text: { 0: 'Shallow end →', 1: 'Deep end, technically.', 3: 'Floaties: you. Pool: also you.', 5: 'Three rafts make a bridge.' } },
     s1: { text: { 0: 'Lifeguard on break.' } },
   },
   events: [{ trigger: { type: 'playerOn', target: '@raft' }, actions: [{ type: 'setCurrent', dir: -1, speed: 1.2, delay: 24 }, { type: 'sfx', name: 'gate', delay: 24 }], once: true }],
@@ -141,7 +141,7 @@ add('act2', fromAscii(`
 `, {
   id: 'L07', name: 'Lights Out', act: 2,
   props: {
-    s1: { text: { 0: 'Lasers are perfectly safe. For lasers.' } },
+    s1: { text: { 0: 'Lasers are perfectly safe. For lasers.', 4: 'Push a body down the shaft. Mind the blink.' } },
     s2: { text: { 0: 'Lights out, please.' } },
     l1: { mode: 'plate', plate: 'pl1' },
     l2: { hidden: true, x: 11, y: 6, dir: 'right', len: 1 },
@@ -158,7 +158,7 @@ add('act2', fromAscii(`
 `, {
   id: 'L08', name: 'Runaway', act: 2,
   props: {
-    s1: { text: { 0: 'The exit is right over there. Go on.' } },
+    s1: { text: { 0: 'The exit is right over there. Go on.', 2: 'Doors hate tripping over bodies.' } },
     door: { runaway: true },
     d1: { by: ['door'] },
     d2: { by: ['door'] },
@@ -202,7 +202,7 @@ add('act3', fromAscii(`
 `, {
   id: 'L10', name: 'Family Reunion', act: 3,
   props: {
-    s1: { text: { 0: 'Bring the whole family.' } },
+    s1: { text: { 0: 'Bring the whole family.', 4: 'Fresh weighs 2. Rot 1. Bones 0.' } },
     g1: { y: 1, h: 4, plate: 'pl1' },
   },
 }));
@@ -224,7 +224,7 @@ add('act3', fromAscii(`
   id: 'L11', name: 'Assembly Line', act: 3,
   props: {
     s1: { text: { 0: 'Staff entrance.' } },
-    s2: { text: { 0: 'Free ride!' } },
+    s2: { text: { 0: 'Free ride!', 3: 'Only the flat fit through. Send someone.' } },
     s3: { text: { 0: 'Employees only.' } },
     g1: { y: 1, h: 2, plate: 'pl1' },
     c1: { h: 2, period: 120, phase: 40 },
