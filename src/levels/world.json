@@ -1,0 +1,294 @@
+{
+  "version": 1,
+  "name": "The Facility",
+  "start": {
+    "room": "atrium"
+  },
+  "rooms": [
+    "atrium",
+    "w1",
+    "hub2",
+    "w2",
+    "hub3",
+    "w3",
+    "hub4",
+    "w4",
+    "L01",
+    "L02",
+    "L03",
+    "L04",
+    "L05",
+    "L06",
+    "L07",
+    "L08",
+    "L09",
+    "L10",
+    "L11",
+    "L12",
+    "L13",
+    "L14",
+    "L15",
+    "L16",
+    "credits"
+  ],
+  "layout": {
+    "atrium": {
+      "x": 0,
+      "y": 192
+    },
+    "w1": {
+      "x": 56,
+      "y": 177
+    },
+    "L01": {
+      "x": 155,
+      "y": 177
+    },
+    "L02": {
+      "x": 155,
+      "y": 189
+    },
+    "L03": {
+      "x": 155,
+      "y": 201
+    },
+    "L04": {
+      "x": 155,
+      "y": 213
+    },
+    "hub2": {
+      "x": 0,
+      "y": 128
+    },
+    "w2": {
+      "x": 56,
+      "y": 113
+    },
+    "L05": {
+      "x": 163,
+      "y": 113
+    },
+    "L06": {
+      "x": 163,
+      "y": 125
+    },
+    "L07": {
+      "x": 163,
+      "y": 137
+    },
+    "L08": {
+      "x": 163,
+      "y": 149
+    },
+    "hub3": {
+      "x": 0,
+      "y": 64
+    },
+    "w3": {
+      "x": 56,
+      "y": 49
+    },
+    "L09": {
+      "x": 167,
+      "y": 49
+    },
+    "L10": {
+      "x": 167,
+      "y": 61
+    },
+    "L11": {
+      "x": 167,
+      "y": 73
+    },
+    "L12": {
+      "x": 167,
+      "y": 85
+    },
+    "hub4": {
+      "x": 0,
+      "y": 0
+    },
+    "w4": {
+      "x": 56,
+      "y": -15
+    },
+    "L13": {
+      "x": 171,
+      "y": -15
+    },
+    "L14": {
+      "x": 171,
+      "y": -3
+    },
+    "L15": {
+      "x": 171,
+      "y": 9
+    },
+    "L16": {
+      "x": 171,
+      "y": 21
+    },
+    "credits": {
+      "x": 198,
+      "y": -64
+    }
+  },
+  "chain": [
+    {
+      "chamber": "L01",
+      "zone": "w1",
+      "entrance": "toL01",
+      "door": {
+        "room": "w1",
+        "exit": "arr1"
+      }
+    },
+    {
+      "chamber": "L02",
+      "zone": "w1",
+      "entrance": "toL02",
+      "door": {
+        "room": "w1",
+        "exit": "arr2"
+      }
+    },
+    {
+      "chamber": "L03",
+      "zone": "w1",
+      "entrance": "toL03",
+      "door": {
+        "room": "w1",
+        "exit": "arr3"
+      }
+    },
+    {
+      "chamber": "L04",
+      "zone": "w1",
+      "entrance": "toL04",
+      "door": {
+        "room": "w1",
+        "exit": "arr4"
+      }
+    },
+    {
+      "chamber": "L05",
+      "zone": "w2",
+      "entrance": "toL05",
+      "door": {
+        "room": "w2",
+        "exit": "arr1"
+      }
+    },
+    {
+      "chamber": "L06",
+      "zone": "w2",
+      "entrance": "toL06",
+      "door": {
+        "room": "w2",
+        "exit": "arr2"
+      }
+    },
+    {
+      "chamber": "L07",
+      "zone": "w2",
+      "entrance": "toL07",
+      "door": {
+        "room": "w2",
+        "exit": "arr3"
+      }
+    },
+    {
+      "chamber": "L08",
+      "zone": "w2",
+      "entrance": "toL08",
+      "door": {
+        "room": "w2",
+        "exit": "arr4"
+      }
+    },
+    {
+      "chamber": "L09",
+      "zone": "w3",
+      "entrance": "toL09",
+      "door": {
+        "room": "w3",
+        "exit": "arr1"
+      }
+    },
+    {
+      "chamber": "L10",
+      "zone": "w3",
+      "entrance": "toL10",
+      "door": {
+        "room": "w3",
+        "exit": "arr2"
+      }
+    },
+    {
+      "chamber": "L11",
+      "zone": "w3",
+      "entrance": "toL11",
+      "door": {
+        "room": "w3",
+        "exit": "arr3"
+      }
+    },
+    {
+      "chamber": "L12",
+      "zone": "w3",
+      "entrance": "toL12",
+      "door": {
+        "room": "w3",
+        "exit": "arr4"
+      }
+    },
+    {
+      "chamber": "L13",
+      "zone": "w4",
+      "entrance": "toL13",
+      "door": {
+        "room": "w4",
+        "exit": "arr1"
+      }
+    },
+    {
+      "chamber": "L14",
+      "zone": "w4",
+      "entrance": "toL14",
+      "door": {
+        "room": "w4",
+        "exit": "arr2"
+      }
+    },
+    {
+      "chamber": "L15",
+      "zone": "w4",
+      "entrance": "toL15",
+      "door": {
+        "room": "w4",
+        "exit": "arr3"
+      }
+    },
+    {
+      "chamber": "L16",
+      "zone": "w4",
+      "entrance": "toL16",
+      "door": {
+        "room": "credits",
+        "exit": "in"
+      }
+    }
+  ],
+  "fallback": {
+    "act4": [
+      "hub4",
+      "w4",
+      "L13",
+      "L14",
+      "L15",
+      "L16"
+    ],
+    "lastAct3": "L12"
+  },
+  "entrances": {}
+}

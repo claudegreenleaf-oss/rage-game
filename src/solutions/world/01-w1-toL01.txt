@@ -1,0 +1,15 @@
+# w1: to exit toL01 (found by scripts/plan-world.ts, 30 nodes)
+right+jump 9
+right 39
+right+jump 18
+right 32
+right+jump 18
+right 32
+right+jump 18
+left 8
+right+jump 32
+right 128
+right+down 8
+right 14
+right+jump 3
+right 445

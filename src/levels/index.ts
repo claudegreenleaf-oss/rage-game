@@ -20,7 +20,27 @@ export const ACTS: ActInfo[] = [
   { n: 1, name: 'Fresh Meat', line: "Don't worry. You get to keep the bodies.", first: 0 },
   { n: 2, name: 'Rot', line: 'The level fights back now. Sorry. Not sorry.', first: 4 },
   { n: 3, name: 'Bare Bones', line: 'Plan your deaths. I already have.', first: 8 },
+  { n: 4, name: 'The Core', line: 'No more training wheels. Or bodies.', first: 12 },
 ];
 
-export const actOf = (index: number): ActInfo => ACTS[Math.min(2, Math.floor(index / 4))]!;
+export const actOf = (index: number): ActInfo => ACTS[Math.min(3, Math.floor(index / 4))]!;
 export const levelIndex = (id: string): number => LEVELS.findIndex((l) => l.id === id);
+
+// ---------------------------------------------------------------------------
+// The connected world (zones + chambers). See src/levels/world-resolve.ts.
+// ---------------------------------------------------------------------------
+import worldSource from './world.json';
+import { resolveWorld, type WorldSource } from './world-resolve';
+import type { WorldDef } from '../sim/campaign';
+
+const zoneFiles = import.meta.glob<LevelData>('./world/*.json', { eager: true, import: 'default' });
+const resolved = resolveWorld(
+  worldSource as unknown as WorldSource,
+  Object.values(zoneFiles).map((l) => normalizeLevel(l)),
+  [...LEVELS, ...(CREDITS_LEVEL ? [CREDITS_LEVEL] : [])],
+);
+
+/** The connected world, ready for `new Campaign(WORLD, WORLD_LEVELS)`. */
+export const WORLD: WorldDef = resolved.def;
+/** Every room the world uses (zones, chambers, credits), with exits pruned to rooms that exist. */
+export const WORLD_LEVELS: LevelData[] = resolved.levels;

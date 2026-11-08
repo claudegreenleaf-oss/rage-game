@@ -1,0 +1,26 @@
+# w2: to exit toL07 (found by scripts/plan-world.ts, 46 nodes)
+right+jump 9
+right 7
+left 8
+right+jump 23
+right 9
+right+jump 18
+right 2
+right+jump 18
+left 6
+right 2
+right+jump 18
+right 78
+right+jump 3
+right 13
+right+down 8
+right 6
+right+jump 3
+right 187
+right+jump 3
+right 27
+right+jump 3
+right 109
+right+down 16
+right+jump 3
+right 371

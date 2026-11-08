@@ -1,0 +1,20 @@
+# atrium: to exit out (found by scripts/plan-world.ts, 21 nodes)
+right+jump 9
+right 7
+left 8
+right+jump 14
+right+down 8
+left 8
+right+jump 14
+right+down 8
+left 8
+right+jump 14
+right 34
+right+jump 18
+right+down 8
+left 8
+right+jump 14
+right+down 8
+left 8
+right+jump 23
+right 252

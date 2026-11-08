@@ -1,0 +1,252 @@
+{
+ "atrium.n1": {
+  "room": "atrium",
+  "from": "out",
+  "script": "# atrium.n1\nleft+jump 9\nleft 7\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft 34\nleft+jump 18\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 23\nleft 7\nleft+jump 18\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 32\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nwait 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nwait 2\njump 18\nleft 6\ndown 8\nright+jump 18\nright 2\nright+jump 18\nleft 6\nwait 6\nright 2\nright+jump 18\ndown 8\nleft 2\nleft+jump 18\nleft 6\nleft+jump 9\nleft 7\nleft+jump 9\nleft 15\nright+jump 14\nwait 6\nleft 8\nright+jump 14\njump 9\nwait 7\nleft 8\nright+jump 14\nright 8\nright+jump 18\nright 8\nleft+jump 14\nleft 6\nleft+jump 18\nleft 30\n"
+ },
+ "atrium.j1": {
+  "room": "atrium",
+  "from": "out",
+  "script": "# atrium.j1\nleft+jump 9\nleft 7\nright 8\nleft+jump 14\njump 9\nwait 7\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 2\nleft+jump 18\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft 8\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nleft 8\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright 8\nleft+jump 14\nleft+down 8\nleft 2\nleft+jump 18\nleft 32\nleft+jump 3\nleft 13\nright 2\n"
+ },
+ "atrium.n2": {
+  "room": "atrium",
+  "from": "out",
+  "script": "# atrium.n2\nleft+jump 9\nleft 7\nright+down 8\nleft+jump 18\nleft 2\nleft+jump 18\nleft 2\nleft+jump 18\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft 8\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 9\nright 26\n"
+ },
+ "hub2.n1": {
+  "room": "hub2",
+  "from": "in",
+  "script": "# hub2.n1\nleft+jump 9\nleft 7\nright+jump 18\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 8\nleft+jump 14\nleft+down 8\nleft 2\nleft+jump 18\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nright 24\n"
+ },
+ "hub2.j1": {
+  "room": "hub2",
+  "from": "in",
+  "script": "# hub2.j1\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 32\nright+jump 21\nright 15\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nleft 14\nright+jump 23\nright 7\nright+jump 18\nright 2\nright+jump 18\nwait 6\nleft 6\njump 18\nleft 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright 8\nleft+jump 14\nleft+down 8\nleft+jump 18\nleft 32\nleft+jump 3\nleft 13\nright 2\n"
+ },
+ "hub2.n2": {
+  "room": "hub2",
+  "from": "in",
+  "script": "# hub2.n2\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nleft 14\nright+jump 23\nright 7\nright+jump 18\nright 2\nright+jump 18\nwait 6\nleft 6\njump 18\nleft 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 9\nright 27\n"
+ },
+ "hub3.n1": {
+  "room": "hub3",
+  "from": "in",
+  "script": "# hub3.n1\nleft+jump 9\nleft 7\nright+jump 18\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 8\nleft+jump 14\nleft+down 8\nleft 2\nleft+jump 18\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nright 24\n"
+ },
+ "hub3.j1": {
+  "room": "hub3",
+  "from": "in",
+  "script": "# hub3.j1\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 32\nright+jump 21\nright 15\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nleft 14\nright+jump 23\nright 7\nright+jump 18\nright 2\nright+jump 18\nwait 6\nleft 6\njump 18\nleft 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright 8\nleft+jump 14\nleft+down 8\nleft+jump 18\nleft 32\nleft+jump 3\nleft 13\nright 2\n"
+ },
+ "hub3.n2": {
+  "room": "hub3",
+  "from": "in",
+  "script": "# hub3.n2\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nleft 14\nright+jump 23\nright 7\nright+jump 18\nright 2\nright+jump 18\nwait 6\nleft 6\njump 18\nleft 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 9\nright 27\n"
+ },
+ "hub4.n1": {
+  "room": "hub4",
+  "from": "in",
+  "script": "# hub4.n1\nleft+jump 9\nleft 7\nright+jump 18\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 8\nleft+jump 14\nleft+down 8\nleft 2\nleft+jump 18\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nright 24\n"
+ },
+ "hub4.j1": {
+  "room": "hub4",
+  "from": "in",
+  "script": "# hub4.j1\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 32\nright+jump 21\nright 15\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nleft 14\nright+jump 23\nright 7\nright+jump 18\nright 2\nright+jump 18\nwait 6\nleft 6\njump 18\nleft 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nwait 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright 8\nleft+jump 14\nleft+down 8\nleft+jump 18\nleft 32\nleft+jump 3\nleft 13\nright 2\n"
+ },
+ "hub4.n2": {
+  "room": "hub4",
+  "from": "in",
+  "script": "# hub4.n2\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 23\nright 7\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nleft 14\nright+jump 23\nright 7\nright+jump 18\nright 2\nright+jump 18\nwait 6\nleft 6\njump 18\nleft 6\nright 8\nleft+jump 14\nleft 2\nleft+jump 18\nleft 8\nright+jump 14\nwait 6\nleft 8\nright+jump 23\nright 7\nright+jump 9\nright 27\n"
+ },
+ "w1.n1": {
+  "room": "w1",
+  "from": "hub",
+  "script": "# w1.n1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright 32\nright+jump 18\nright 76\n"
+ },
+ "w1.j1": {
+  "room": "w1",
+  "from": "hub",
+  "script": "# w1.j1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright 32\nright+jump 18\nright 148\nright+jump 3\nright 88\n"
+ },
+ "w1.n2": {
+  "room": "w1",
+  "from": "hub",
+  "script": "# w1.n2\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright 32\nright+jump 18\nright 148\nright+jump 3\nright 270\n"
+ },
+ "w1.n3": {
+  "room": "w1",
+  "from": "arr1",
+  "script": "# w1.n3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 14\nright+down 8\nright+jump 9\nright 9\nright+jump 18\nright 2\nright+jump 18\nright 2\nright+jump 18\nright 2\nright+jump 18\nright 32\nright+jump 3\nright 5\n"
+ },
+ "w1.j2": {
+  "room": "w1",
+  "from": "arr1",
+  "script": "# w1.j2\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 14\nright+down 8\nright+jump 9\nright 7\nright+jump 9\nright 7\nright+jump 3\nright 13\nright+jump 3\nright 187\nright+down 8\nright+jump 3\nright 54\n"
+ },
+ "w1.n4": {
+  "room": "w1",
+  "from": "arr2",
+  "script": "# w1.n4\nright 116\nleft+jump 3\nleft 13\nright 14\nright+jump 18\nright+down 16\nright+jump 3\nright 19\nright+jump 3\nright 57\n"
+ },
+ "w1.j3": {
+  "room": "w1",
+  "from": "toL03",
+  "script": "# w1.j3\nleft+jump 9\nleft 7\nright 8\nleft+jump 23\nleft 7\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 32\nleft 2\nleft+jump 18\nleft 32\nleft+jump 9\nleft 7\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 32\nleft 2\nleft+jump 18\nleft 32\nleft+jump 9\nleft 7\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 32\nleft 2\nleft+jump 18\nleft 2\nleft+jump 18\nleft 2\nleft+jump 18\nleft 32\nleft+jump 3\nleft 5\n"
+ },
+ "w1.n5": {
+  "room": "w1",
+  "from": "toL04",
+  "script": "# w1.n5\nleft+jump 9\nleft 7\nright 8\nleft+jump 23\nleft 7\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 32\nleft 2\nleft+jump 18\nleft 32\nleft+jump 9\nleft 7\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 32\nleft 2\nleft+jump 18\nleft 32\nleft+jump 9\nleft 7\nright 8\nleft+jump 14\nleft+down 8\nright 8\nleft+jump 32\nleft 2\nleft+jump 18\nleft 6\nright 8\nleft+jump 14\nright 6\nleft 2\nleft+jump 18\nleft 64\nleft+jump 18\nleft 58\n"
+ },
+ "w1.j4": {
+  "room": "w1",
+  "from": "toL04",
+  "script": "# w1.j4\nleft 245\n"
+ },
+ "w1.n6": {
+  "room": "w1",
+  "from": "arr4",
+  "script": "# w1.n6\nright 82\n"
+ },
+ "w1.j5": {
+  "room": "w1",
+  "from": "arr4",
+  "script": "# w1.j5\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 8\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 12\n"
+ },
+ "w2.n1": {
+  "room": "w2",
+  "from": "hub",
+  "script": "# w2.n1\nright 96\nright+jump 18\nright 6\nright+down 8\nright 58\n"
+ },
+ "w2.j1": {
+  "room": "w2",
+  "from": "hub",
+  "script": "# w2.j1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 23\nright 13\nright+jump 3\nright 47\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 2\nright+jump 18\nleft+down 8\nleft 8\nright+jump 14\nleft+down 8\nleft 8\nright+jump 14\nleft 14\nright+jump 14\nleft+jump 3\nleft 13\nright 14\nright+jump 9\nright 39\nright+jump 9\nright 39\nright+jump 3\nright 5\n"
+ },
+ "w2.n2": {
+  "room": "w2",
+  "from": "arr1",
+  "script": "# w2.n2\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nwait 6\nright+down 8\nright 2\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 9\nright+jump 18\nright 2\nright+jump 18\nright 6\nright+jump 3\nright 45\nright+jump 17\n"
+ },
+ "w2.j2": {
+  "room": "w2",
+  "from": "arr1",
+  "script": "# w2.j2\nright 96\nright+jump 3\nright 27\nright+jump 3\nright 79\nright+jump 18\nright 32\nright+down 8\nright 174\nright+jump 3\nright 53\n"
+ },
+ "w2.n3": {
+  "room": "w2",
+  "from": "arr2",
+  "script": "# w2.n3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 9\nright+jump 18\nright 2\nright+jump 18\nleft 6\nright 2\nright+jump 18\nright 78\nright+jump 3\nright 13\nright+down 8\nright 6\nright+jump 3\nright 60\n"
+ },
+ "w2.j3": {
+  "room": "w2",
+  "from": "arr3",
+  "script": "# w2.j3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 38\nright+jump 9\nright 7\nright+jump 9\nright 7\nright+jump 18\nright 34\nright+jump 17\n"
+ },
+ "w2.n4": {
+  "room": "w2",
+  "from": "arr3",
+  "script": "# w2.n4\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 38\nright+jump 9\nright 7\nright+jump 18\nright 128\nright+jump 3\nright 13\nright+jump 3\nright 13\nright+jump 3\nright 51\n"
+ },
+ "w2.n5": {
+  "room": "w2",
+  "from": "arr4",
+  "script": "# w2.n5\nright 128\nright+jump 3\nright 27\nright+jump 3\nright 54\n"
+ },
+ "w2.j4": {
+  "room": "w2",
+  "from": "arr4",
+  "script": "# w2.j4\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright+down 8\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 39\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 6\nright+jump 3\nright 13\nright+jump 3\nright 59\n"
+ },
+ "w3.n1": {
+  "room": "w3",
+  "from": "hub",
+  "script": "# w3.n1\nright 96\nwait 6\nleft 6\nright 70\nright+jump 3\nright 50\n"
+ },
+ "w3.j1": {
+  "room": "w3",
+  "from": "hub",
+  "script": "# w3.j1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 14\nright+down 8\nright+jump 9\nright 7\nright+jump 18\nright 8\nright+jump 18\nright 32\nright+jump 9\nright 39\nright+jump 18\nright 2\nright+jump 18\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 9\n"
+ },
+ "w3.n2": {
+  "room": "w3",
+  "from": "arr1",
+  "script": "# w3.n2\nright 128\nright+jump 3\nright 54\n"
+ },
+ "w3.j2": {
+  "room": "w3",
+  "from": "arr1",
+  "script": "# w3.j2\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 2\nright+jump 18\nright+down 8\nright 32\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 6\nright+jump 3\nright 13\nright+jump 3\nright 128\n"
+ },
+ "w3.n3": {
+  "room": "w3",
+  "from": "arr2",
+  "script": "# w3.n3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nleft 14\nright+jump 17\nright 13\nright+jump 3\nright 45\nright+jump 18\n"
+ },
+ "w3.j3": {
+  "room": "w3",
+  "from": "arr2",
+  "script": "# w3.j3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nleft 14\nright+jump 17\nright 13\nright+jump 18\nright 44\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nright 2\nright+jump 18\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 14\nright 6\njump 3\nwait 13\nright 2\nright+jump 18\nright 6\nwait 2\njump 18\nright 273\n"
+ },
+ "w3.n4": {
+  "room": "w3",
+  "from": "arr3",
+  "script": "# w3.n4\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 9\nright+jump 18\nright 2\nright+jump 18\nleft 6\nright 2\nright+jump 18\nright 78\nright+jump 3\nright 63\n"
+ },
+ "w3.j4": {
+  "room": "w3",
+  "from": "arr3",
+  "script": "# w3.j4\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 9\nright+jump 18\nright 2\nright+jump 18\nleft 8\nright+jump 14\nright 34\nright+jump 18\nleft 8\nright+jump 14\nright 34\nright+jump 18\nleft 8\nright+jump 14\nright 32\nright+jump 18\nleft 8\nright+jump 14\nright 32\nright+jump 9\nright 39\nright+jump 18\nright 2\nright+jump 18\nleft 8\nright+jump 14\nright 14\nright+jump 18\nright 32\nright+jump 9\nright 6\n"
+ },
+ "w3.n5": {
+  "room": "w3",
+  "from": "arr4",
+  "script": "# w3.n5\nright 82\n"
+ },
+ "w3.j5": {
+  "room": "w3",
+  "from": "arr4",
+  "script": "# w3.j5\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 2\nright+jump 18\nright 14\nright+jump 3\nright 63\n"
+ },
+ "w4.n1": {
+  "room": "w4",
+  "from": "hub",
+  "script": "# w4.n1\nright 96\nright+jump 18\nright 6\nright+down 8\nright 64\nleft 6\nright 6\nleft 6\nright 59\n"
+ },
+ "w4.j1": {
+  "room": "w4",
+  "from": "hub",
+  "script": "# w4.j1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 23\nright 7\nright+jump 9\nright 9\nright+jump 21\nright 45\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 8\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 32\nright+jump 18\n"
+ },
+ "w4.n2": {
+  "room": "w4",
+  "from": "arr1",
+  "script": "# w4.n2\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nleft 12\nright 2\nright+jump 27\nright 39\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 8\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 12\n"
+ },
+ "w4.j2": {
+  "room": "w4",
+  "from": "arr1",
+  "script": "# w4.j2\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nleft 12\nright 2\nright+jump 27\nright 39\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 6\nright+jump 3\nright 13\nright+jump 3\nright 193\nright+jump 3\nright 69\n"
+ },
+ "w4.n3": {
+  "room": "w4",
+  "from": "arr2",
+  "script": "# w4.n3\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 2\nright+jump 18\nright+down 8\nright 32\nright+jump 18\nright 32\njump 9\nwait 7\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 14\nright 6\nright+jump 3\nright 66\n"
+ },
+ "w4.j3": {
+  "room": "w4",
+  "from": "arr2",
+  "script": "# w4.j3\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 2\nright+jump 18\nright+down 8\nright 32\nright+jump 18\nright 32\njump 9\nwait 7\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 14\nright 6\nright+jump 3\nright 129\nright+jump 3\nright 15\nright+jump 18\nright 2\nright+jump 18\nright 64\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 9\nright+jump 18\nwait 2\njump 18\nwait 6\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 11\n"
+ },
+ "w4.n4": {
+  "room": "w4",
+  "from": "arr3",
+  "script": "# w4.n4\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 9\nright+jump 18\nright 2\nright+jump 18\nleft 6\nright 2\nright+jump 18\nright 78\nright+jump 3\nright 63\n"
+ },
+ "w4.j4": {
+  "room": "w4",
+  "from": "arr3",
+  "script": "# w4.j4\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 9\nright+jump 18\nright 2\nright+jump 18\nleft 6\nright 2\nright+jump 18\nright 78\nright+jump 3\nright 237\nright+jump 3\nright 27\nright+jump 3\nright 52\n"
+ }
+}

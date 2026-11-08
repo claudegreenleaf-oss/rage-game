@@ -1,0 +1,24 @@
+# w3: to exit toL12 (found by scripts/plan-world.ts, 104 nodes)
+right+jump 9
+right 7
+left 8
+right+jump 23
+right 9
+right+jump 18
+right 2
+right+jump 18
+left 6
+right 2
+right+jump 18
+right 78
+right+jump 3
+right 187
+right+down 8
+right+jump 3
+right 141
+right+down 8
+right 14
+right+jump 18
+wait 6
+right+jump 3
+right 370

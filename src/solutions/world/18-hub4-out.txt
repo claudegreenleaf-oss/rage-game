@@ -1,0 +1,11 @@
+# hub4: to exit out (found by scripts/plan-world.ts, 16 nodes)
+right+jump 9
+right 39
+right+jump 18
+left 8
+right+jump 14
+right 32
+right+jump 18
+right 34
+right+jump 18
+right 245

@@ -1,0 +1,21 @@
+# L09 in the world: Pip arrives already under the low wall spike, so the opening 'left 4' is dropped.
+jump 20       # jump into the low wall spike (death 1): a ledge
+wait 30
+right 9       # respawn: step clear of the ledge
+wait 6
+jump 12       # jump up beside it...
+left+jump 12  # ...and drift onto it
+wait 10
+right+jump 30 # leap at the right-hand spike (death 2): ledge 1 turns Rot
+wait 30
+right 20      # walk into the floor spike (death 3): ledge 1 Skeleton, ledge 2 Rot
+wait 30
+right 9
+wait 6
+jump 12       # jump up through the skeleton ledge
+left+jump 12  # and stand on it
+wait 10
+right+jump 24 # jump right along the Rot ledge's side and onto it
+right 4
+jump 14       # ride the bounce up the shaft
+right 40      # and step out onto the exit floor

@@ -1,0 +1,23 @@
+# w1: to exit toL03 (found by scripts/plan-world.ts, 10534 nodes)
+right+jump 9
+right 105
+right+jump 18
+right 32
+right+jump 18
+right 44
+right+jump 9
+right 7
+left 8
+right+jump 23
+right 7
+left 8
+right+jump 14
+right+down 8
+left 8
+right+jump 14
+right+down 8
+right+jump 18
+wait 6
+right 2
+right+jump 18
+right 495
