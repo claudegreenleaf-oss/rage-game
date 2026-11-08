@@ -67,6 +67,7 @@ npm run test:smoke # Playwright only (first run: npx playwright install chromium
 - `tests/replays.test.ts` runs every solution script in `src/solutions/` through the pure simulation at full speed and asserts the level is won **with the intended number of deaths**, then prints a table of level, solved, deaths and time.
 - `tests/sim.test.ts` covers the core rules: movement feel, corpse aging and the cap, death-type results, weight through stacks, the respawn reset rule, Rot bounce height, Skeleton one-way and drop-through, and doors blocked by Fresh and Rot but not Skeletons.
 - `tests/invariants.test.ts` encodes each level's binding invariants from the spec, mostly by brute-forcing families of jumps (for example, "you can't jump straight from the last stop to the bank").
+- `tests/world.test.ts` covers the world mechanics (wall-jump, vines, crates, crumbling floors, benches, relics, rules, room transitions); `tests/worldmap.test.ts` validates the connected world and plays a scripted full run from the atrium to the credits; `tests/act4.test.ts` holds Act 4's replays and invariants; `tests/editor.test.ts` covers the editor model, pixelation and songs.
 - `tests/smoke.spec.ts` boots the production build, starts L1 with real key presses and checks the death counter goes up, and that the game runs with `localStorage` disabled.
 
 CI (`.github/workflows/deploy.yml`) typechecks, runs all of the above, builds, and deploys `dist/` to GitHub Pages on every push to `main`.
