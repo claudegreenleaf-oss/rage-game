@@ -1,9 +1,25 @@
 // Browser smoke test: boot the build, start L01, walk into the spikes, and see the death counter go up.
 import { expect, test } from '@playwright/test';
 
+test('asks for the play code, rejects a wrong one, and remembers the right one', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('#gate-code')).toBeVisible();
+  expect(await page.evaluate(() => !!window.__dt)).toBe(false); // the game isn't loaded yet
+  await page.fill('#gate-code', '0000');
+  await page.press('#gate-code', 'Enter');
+  await expect(page.locator('.dt-err')).toHaveText(/not it/);
+  await page.fill('#gate-code', '12345');
+  await page.press('#gate-code', 'Enter');
+  await page.waitForFunction(() => window.__dt?.game.scene.isActive('Title'), null, { timeout: 30_000 });
+  await page.reload();
+  await page.waitForFunction(() => window.__dt?.game.scene.isActive('Title'), null, { timeout: 30_000 });
+  await expect(page.locator('#gate-code')).toHaveCount(0);
+});
+
 test('boots, plays L01 and counts a death', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => { try { localStorage.setItem('dietrying.unlocked', '43c2c0d8'); } catch { /* fine */ } });
   await page.goto('./');
   await page.waitForFunction(() => window.__dt?.game.scene.isActive('Title'), null, { timeout: 30_000 });
   await expect(page.locator('canvas')).toBeVisible();
@@ -29,6 +45,8 @@ test('runs without localStorage', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('./');
+  await page.fill('#gate-code', '12345'); // no storage: the code is asked every time
+  await page.press('#gate-code', 'Enter');
   await page.waitForFunction(() => window.__dt?.game.scene.isActive('Title'), null, { timeout: 30_000 });
   await page.evaluate(() => window.__dt!.startLevel('L02'));
   await page.waitForFunction(() => window.__dt?.getWorld() !== null, null, { timeout: 30_000 });

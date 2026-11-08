@@ -33,11 +33,13 @@
       .dt-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #2b2433; }
       .dt-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #2b2433; }
       .dt-btn.ghost { background: #fff8ec; }
+      #gate-code { width: 100%; box-sizing: border-box; border: 3px solid #2b2433; border-radius: 12px; padding: 10px 12px; font: 600 24px 'Pixelify Sans', ui-monospace, monospace; letter-spacing: .3em; background: #fff8ec; color: #2b2433; outline: none; }
+      #gate-code:focus { box-shadow: 0 0 0 3px #ffc9a3; }
     </style>
   </head>
   <body>
     <div id="boot">loading…</div>
     <div id="game"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/gate.ts"></script>
   </body>
 </html>

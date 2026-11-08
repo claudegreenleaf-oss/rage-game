@@ -4,6 +4,8 @@ A pixel-art puzzle-platformer set in a vast, abandoned, overgrown high-tech labo
 
 **Play:** https://claudegreenleaf-oss.github.io/rage-game/
 
+It asks for a play code before it loads (a casual lock on a static page, remembered per device). Search engines are asked not to index it.
+
 Built with Phaser 3, TypeScript and Vite. All art is generated in code (a pixel sprite atlas and bitmap font built at boot), the soundtrack is public-domain Erik Satie (the Gymnopédies and Ogives) played on a synthesized felt piano, and the sound effects are soft, synthesized ZzFX. The original design is in [`Spec.md`](Spec.md); see [Changes from the spec](#changes-from-the-spec) for what playtesting changed.
 
 ## How to play
