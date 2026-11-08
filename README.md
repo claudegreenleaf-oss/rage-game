@@ -2,7 +2,7 @@
 
 A pixel-art puzzle-platformer set in a vast, abandoned, overgrown high-tech laboratory, in the rage-game style (traps spring, floors vanish, signs lie), where **your corpses stay behind and become your tools**. Every death leaves a body you can stand on, push, bounce on, or use to weigh down a plate. It should feel unfair the first time and obvious the second.
 
-**Play:** https://claudegreenleaf-oss.github.io/rage-game/
+**Play:** https://rage-game.scotusthenine.org/ (the old github.io link redirects there)
 
 It asks for a play code before it loads (a casual lock on a static page, remembered per device). Search engines are asked not to index it.
 
