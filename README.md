@@ -102,6 +102,13 @@ tests/         Vitest suites and the Playwright smoke test.
 
 The simulation never touches `Math.random`, `Date` or the DOM, so a run is fully determined by the level and the inputs; the renderer only reads sim state and feeds it input. Cosmetic randomness (particles) uses a seeded RNG on the render side.
 
+## Credits
+
+**Music.** Erik Satie (1866–1925), played on a synthesized felt piano.
+- *Gymnopédies* Nos. 1–3 (1888): from the Mutopia Project's public-domain engravings (pieces 37, 38, 39, https://www.mutopiaproject.org). Public domain.
+- *Ogives* Nos. 1–4 (1886): from public-domain MIDI transcriptions on Wikimedia Commons (https://commons.wikimedia.org/wiki/File:Erik_Satie_-_Ogive_No.1.mid and Nos. 2–4). Public domain.
+- *Gnossiennes* Nos. 1–3 (1890): note data derived from Mutopia Project engravings. No. 1 typeset by Knute Snortum (Mutopia #2035, https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2035); No. 2 typeset by Frédéric Duperray (https://github.com/MutopiaProject/MutopiaProject/tree/master/ftp/SatieE/Gnossienne/no_2); No. 3 typeset by Frédéric Duperray (Mutopia #2131, https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2131). Licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Changes: rendered to MIDI and voiced for the game's piano. The derived note data (`src/audio/satie-gnossiennes.ts`) is shared under CC BY-SA 4.0.
+
 ## Changes from the spec
 
 Playtesting with the owner changed the direction after the spec's v1 was built and deployed:

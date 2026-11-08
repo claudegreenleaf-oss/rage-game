@@ -7,7 +7,7 @@ export interface Progress {
   best: Record<string, number>;
   beaten: Record<string, boolean>;
   totalDeaths: number;
-  settings: { muted: boolean };
+  settings: { muted: boolean; musicVolume: number; sfxVolume: number };
   /** The connected-world run (null until a new game starts). */
   world: WorldSave | null;
   /** HUD tips already shown (each appears once per save). */
@@ -17,7 +17,7 @@ export interface Progress {
 /** Mirrors the sim's CampaignSave (kept structural so progress.ts has no sim dependency). */
 export interface WorldSave { room: string; collected: string[]; cleared: string[]; visited: string[]; deaths: number }
 
-const fresh = (): Progress => ({ unlocked: 0, best: {}, beaten: {}, totalDeaths: 0, settings: { muted: false }, world: null, tips: [] });
+const fresh = (): Progress => ({ unlocked: 0, best: {}, beaten: {}, totalDeaths: 0, settings: { muted: false, musicVolume: 0.8, sfxVolume: 1 }, world: null, tips: [] });
 
 let state: Progress = load();
 
@@ -65,6 +65,13 @@ export const progress = {
   },
   get muted(): boolean { return state.settings.muted; },
   setMuted(m: boolean): void { state.settings.muted = m; save(); },
+  get musicVolume(): number { return state.settings.musicVolume; },
+  get sfxVolume(): number { return state.settings.sfxVolume; },
+  setVolumes(v: { music?: number; sfx?: number }): void {
+    if (v.music !== undefined) state.settings.musicVolume = Math.max(0, Math.min(1, v.music));
+    if (v.sfx !== undefined) state.settings.sfxVolume = Math.max(0, Math.min(1, v.sfx));
+    save();
+  },
   reset(): void { state = fresh(); save(); },
 };
 

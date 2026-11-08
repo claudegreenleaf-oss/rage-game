@@ -40,9 +40,9 @@ function makeBus(ctx: AudioContext): Bus {
   const master = ctx.createGain();
   master.gain.value = muted ? 0 : MASTER_LEVEL;
   const sfx = ctx.createGain();
-  sfx.gain.value = SFX_LEVEL;
+  sfx.gain.value = SFX_LEVEL * progress.sfxVolume;
   const music = ctx.createGain();
-  music.gain.value = 1;
+  music.gain.value = progress.musicVolume;
   const duck = ctx.createGain();
   duck.gain.value = 1;
   music.connect(duck).connect(master);
@@ -190,6 +190,18 @@ export const audio = {
     g.setTargetAtTime(1, t + Math.max(0.15, seconds), 0.35);
   },
 
+  /** Music volume 0–1 (saved). */
+  get musicVolume(): number { return progress.musicVolume; },
+  /** Sound-effects volume 0–1 (saved). */
+  get sfxVolume(): number { return progress.sfxVolume; },
+  /** Set either volume (0–1); applies immediately with a short ramp and is saved. */
+  setVolumes(v: { music?: number; sfx?: number }): void {
+    progress.setVolumes(v);
+    if (!bus) return;
+    const t = bus.ctx.currentTime;
+    if (v.music !== undefined) { bus.music.gain.cancelScheduledValues(t); bus.music.gain.setTargetAtTime(progress.musicVolume, t, 0.04); }
+    if (v.sfx !== undefined) { bus.sfx.gain.cancelScheduledValues(t); bus.sfx.gain.setTargetAtTime(SFX_LEVEL * progress.sfxVolume, t, 0.04); }
+  },
   setMuted(m: boolean): void {
     muted = m;
     progress.setMuted(m);
