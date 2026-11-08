@@ -12,6 +12,33 @@ export interface WorldDef {
   start: { room: string };
   /** Room ids in map order (zones and chambers). */
   rooms: string[];
+  /**
+   * How chambers (whose files stay exactly as the standalone puzzles) plug into the world:
+   * extra exits, wall tiles to open for them, and where the exit door leads.
+   */
+  attach?: Record<string, ChamberAttach>;
+  /** Map placement of each room in tiles, for the map screen. */
+  layout?: Record<string, { x: number; y: number }>;
+}
+
+export interface ChamberAttach {
+  exits?: Exit[];
+  /** Cells to clear (e.g. a doorway in the outer wall where an exit is). */
+  open?: Array<{ x: number; y: number }>;
+  door?: { room: string; exit: string };
+}
+
+/** A chamber with its world attachment applied (a copy; the original level is untouched). */
+export function attachChamber(l: LevelData, a: ChamberAttach | undefined): LevelData {
+  if (!a) return l;
+  const c: LevelData = JSON.parse(JSON.stringify(l)) as LevelData;
+  c.exits = [...(c.exits ?? []), ...(a.exits ?? [])];
+  for (const cell of a.open ?? []) {
+    const row = c.tiles[cell.y];
+    if (row && cell.x >= 0 && cell.x < c.width) c.tiles[cell.y] = row.slice(0, cell.x) + '.' + row.slice(cell.x + 1);
+  }
+  if (a.door) for (const o of c.objects) if (o.type === 'door') o.to = a.door;
+  return c;
 }
 
 export interface RoomChange {
@@ -67,7 +94,7 @@ export class Campaign {
 
   constructor(def: WorldDef, levels: LevelData[], save?: CampaignSave) {
     this.def = def;
-    for (const l of levels) this.rooms.set(l.id, l);
+    for (const l of levels) this.rooms.set(l.id, attachChamber(l, def.attach?.[l.id]));
     for (const id of def.rooms) if (!this.rooms.has(id)) throw new Error(`world: missing room ${id}`);
     if (save && this.rooms.has(save.room)) {
       save.collected.forEach((c) => this.collected.add(c));
@@ -143,7 +170,7 @@ function exitSideOf(l: LevelData, exitId: string): RoomChange['side'] {
 /** Check that every exit links to a real exit that links back (used by tests and the world build). */
 export function validateWorld(def: WorldDef, levels: LevelData[]): string[] {
   const errs: string[] = [];
-  const byId = new Map(levels.map((l) => [l.id, l]));
+  const byId = new Map(levels.map((l) => [l.id, attachChamber(l, def.attach?.[l.id])]));
   for (const id of def.rooms) {
     const l = byId.get(id);
     if (!l) { errs.push(`missing room ${id}`); continue; }
