@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Die Trying: a puzzle-platformer where your corpses stay behind and become your tools." />
+    <meta name="theme-color" content="#2b2433" />
+    <title>Die Trying</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232b2433'/%3E%3Ccircle cx='22' cy='18' r='9' fill='%23ffc9a3' stroke='%232b2433' stroke-width='3'/%3E%3Ccircle cx='42' cy='18' r='9' fill='%23ffc9a3' stroke='%232b2433' stroke-width='3'/%3E%3Cellipse cx='32' cy='38' rx='20' ry='18' fill='%23ffc9a3'/%3E%3Cpath d='M22 32l6 6M28 32l-6 6M36 32l6 6M42 32l-6 6' stroke='%232b2433' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #2b2433; overflow: hidden; }
+      body { display: flex; align-items: center; justify-content: center; font-family: Fredoka, 'Baloo 2', Nunito, system-ui, sans-serif; }
+      #game { width: 100vw; height: 100vh; }
+      #game canvas { display: block; border-radius: 6px; box-shadow: 0 18px 60px rgba(0,0,0,.45); }
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; color: #fbf3e4; font-size: 22px; letter-spacing: .08em; pointer-events: none; transition: opacity .4s; }
+      .dt-modal { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(43,36,51,.55); z-index: 10; }
+      .dt-card { background: #fbf3e4; border: 4px solid #2b2433; border-radius: 22px; padding: 22px 24px; width: min(520px, 90vw); box-shadow: 0 10px 0 #2b2433; color: #2b2433; }
+      .dt-card h2 { margin: 0 0 12px; font-weight: 700; font-size: 26px; }
+      .dt-card p { margin: 0 0 12px; font-size: 16px; opacity: .8; }
+      .dt-card textarea { width: 100%; box-sizing: border-box; min-height: 90px; border: 3px solid #2b2433; border-radius: 12px; padding: 10px; font: 500 14px/1.4 ui-monospace, monospace; background: #fff8ec; color: #2b2433; resize: vertical; }
+      .dt-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; align-items: center; }
+      .dt-err { color: #c93f4f; font-weight: 600; margin-right: auto; font-size: 14px; }
+      .dt-btn { font: 600 17px Fredoka, system-ui, sans-serif; border: 3px solid #2b2433; border-radius: 14px; padding: 8px 18px; background: #ffc9a3; color: #2b2433; cursor: pointer; box-shadow: 0 4px 0 #2b2433; transition: transform .08s, box-shadow .08s; }
+      .dt-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #2b2433; }
+      .dt-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #2b2433; }
+      .dt-btn.ghost { background: #fff8ec; }
+    </style>
+  </head>
+  <body>
+    <div id="boot">loading…</div>
+    <div id="game"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

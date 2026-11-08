@@ -43,7 +43,8 @@
       "x": 18,
       "y": 4,
       "text": {
-        "0": "Old you is softer. Use that."
+        "0": "Nearly there. Look up. Or don't.",
+        "3": "Every death ages the others. I don't make the rules. (I do.)"
       }
     },
     {
@@ -64,8 +65,7 @@
       "x": 3,
       "y": 9,
       "text": {
-        "0": "Nearly there. Look up. Or don't.",
-        "3": "Every death ages the others. I don't make the rules. (I do.)"
+        "0": "Old you is softer. Use that."
       }
     }
   ],

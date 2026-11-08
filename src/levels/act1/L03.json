@@ -34,7 +34,8 @@
       "x": 18,
       "y": 3,
       "text": {
-        "0": "Push things. It's good for you."
+        "0": "Welcome! Mind your head.",
+        "2": "I did say mind your head."
       }
     },
     {
@@ -55,8 +56,7 @@
       "x": 3,
       "y": 6,
       "text": {
-        "0": "Welcome! Mind your head.",
-        "2": "I did say mind your head."
+        "0": "Push things. It's good for you."
       }
     }
   ],

@@ -59,8 +59,8 @@ add('act1', fromAscii(`
 `, {
   id: 'L03', name: 'Leg Up', act: 1,
   props: {
-    s1: { text: { 0: "Push things. It's good for you." } },
-    s2: { text: { 0: 'Welcome! Mind your head.', 2: 'I did say mind your head.' } },
+    s2: { text: { 0: "Push things. It's good for you." } },
+    s1: { text: { 0: 'Welcome! Mind your head.', 2: 'I did say mind your head.' } },
   },
 }));
 
@@ -79,8 +79,8 @@ add('act1', fromAscii(`
 `, {
   id: 'L04', name: 'Growing Old', act: 1,
   props: {
-    s1: { text: { 0: 'Old you is softer. Use that.' } },
-    s2: { text: { 0: 'Nearly there. Look up. Or don\'t.', 3: "Every death ages the others. I don't make the rules. (I do.)" } },
+    s2: { text: { 0: 'Old you is softer. Use that.' } },
+    s1: { text: { 0: 'Nearly there. Look up. Or don\'t.', 3: "Every death ages the others. I don't make the rules. (I do.)" } },
   },
 }));
 
@@ -102,16 +102,16 @@ add('act2', fromAscii(`
   id: 'L05', name: 'Shallow End', act: 2,
   current: { dir: 1, speed: 2.5 },
   props: {
-    s1: { text: { 0: 'Shallow end →', 1: 'Deep end, technically.', 3: 'Floaties: you. Pool: also you.' } },
-    s2: { text: { 0: 'Lifeguard on break.' } },
+    s2: { text: { 0: 'Shallow end →', 1: 'Deep end, technically.', 3: 'Floaties: you. Pool: also you.' } },
+    s1: { text: { 0: 'Lifeguard on break.' } },
   },
   events: [{ trigger: { type: 'playerOn', target: '@raft' }, actions: [{ type: 'setCurrent', dir: -1, speed: 1.2, delay: 24 }, { type: 'sfx', name: 'gate', delay: 24 }], once: true }],
 }));
 
 add('act2', fromAscii(`
 ##########################
-#........................#
 #...........d............#
+#........................#
 #........................#
 #........................#
 #.?......................#

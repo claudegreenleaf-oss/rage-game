@@ -23,9 +23,7 @@
       "x": 15,
       "y": 3,
       "text": {
-        "0": "Shallow end →",
-        "1": "Deep end, technically.",
-        "3": "Floaties: you. Pool: also you."
+        "0": "Lifeguard on break."
       }
     },
     {
@@ -40,7 +38,9 @@
       "x": 2,
       "y": 4,
       "text": {
-        "0": "Lifeguard on break."
+        "0": "Shallow end →",
+        "1": "Deep end, technically.",
+        "3": "Floaties: you. Pool: also you."
       }
     },
     {
