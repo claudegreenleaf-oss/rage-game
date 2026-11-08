@@ -309,6 +309,8 @@ const PAR: Record<string, number> = { L01: 3, L02: 2, L03: 2, L04: 3, L05: 3, L0
 
 for (const { dir, level } of levels) {
   if (PAR[level.id] !== undefined) level.par = PAR[level.id];
+  // Wall jumping is on by default; these puzzles were designed and tested without it.
+  if (!level.credits) level.abilities = { ...level.abilities, wallJump: false };
   mkdirSync(`src/levels/${dir}`, { recursive: true });
   writeFileSync(`src/levels/${dir}/${level.id}.json`, JSON.stringify(level, null, 2) + '\n');
 }

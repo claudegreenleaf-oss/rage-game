@@ -1,5 +1,5 @@
 // Editor tools (how you paint) and palette items (what you paint), grouped by layer.
-import { DECOR_IDS, decorChar, type DecorId, type LevelObject, type TileGlyph } from '../sim/types';
+import { DECOR_IDS, decorChar, type DecorId, type GadgetObj, type LevelObject, type TileGlyph } from '../sim/types';
 import type { LayerId } from './model';
 import { DECOR_LABEL } from './decor';
 
@@ -73,6 +73,52 @@ export const OBJECTS: Item[] = [
   { id: 'label', label: 'Text label', icon: 'T', hint: 'Decorative text (credits-style).', idPrefix: 'lab', group: 'Secrets', make: (id, x, y) => ({ type: 'label', id, x: x + 0.5, y: y + 0.5, text: 'Hello' }) },
 ];
 
+/** A gadget at (x, y) with the given parts. */
+const gadget = (id: string, x: number, y: number, g: Omit<GadgetObj, 'type' | 'id' | 'x' | 'y'> & { dx?: number; dy?: number }): GadgetObj => {
+  const { dx = 0, dy = 0, ...rest } = g;
+  return { type: 'gadget', id, x: x + dx, y: y + dy, ...rest };
+};
+
+/** Ready-made gadgets. Every one is fully editable in the inspector: they are starting points, not limits. */
+export const GADGETS: Item[] = [
+  { id: 'g_spring', label: 'Spring', icon: '⤒', hint: 'Bounces Pip and bodies high. Change the height in the inspector.', idPrefix: 'spring', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Spring', w: 1, h: 0.5, dy: 0.5, effect: { kind: 'bounce', height: 6 } }) },
+  { id: 'g_launch', label: 'Launcher', icon: '↗', hint: 'Flings whatever touches it in a direction.', idPrefix: 'launch', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Launcher', w: 1, h: 0.5, dy: 0.5, effect: { kind: 'launch', vx: 12, vy: -14 } }) },
+  { id: 'g_fan', label: 'Updraft', icon: '≋', hint: 'A column of air pushing up. Hold jump to ride it.', idPrefix: 'fan', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Updraft', w: 2, h: 5, dy: -4, look: { shape: 'field' }, effect: { kind: 'force', ax: 0, ay: -95 } }) },
+  { id: 'g_wind', label: 'Wind', icon: '➠', hint: 'Pushes sideways while inside.', idPrefix: 'wind', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Wind', w: 5, h: 3, dy: -2, look: { shape: 'field' }, effect: { kind: 'force', ax: 40, ay: 0 } }) },
+  { id: 'g_lowgrav', label: 'Low gravity', icon: '☾', hint: 'Floaty jumps inside the field.', idPrefix: 'grav', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Low gravity', w: 4, h: 4, dx: -1, dy: -3, look: { shape: 'field' }, effect: { kind: 'gravity', scale: 0.3 } }) },
+  { id: 'g_goo', label: 'Goo', icon: '≈', hint: 'Sticky: slows everything inside.', idPrefix: 'goo', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Goo', w: 3, h: 1, look: { shape: 'field' }, effect: { kind: 'slow', factor: 0.35 } }) },
+  { id: 'g_tele', label: 'Teleporter', icon: '◎', hint: 'Sends Pip (and bodies) to a spot or to another gadget. Set the destination with the eyedropper.', idPrefix: 'tele', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Teleporter', w: 1, h: 1, look: { shape: 'round' }, effect: { kind: 'teleport', to: { x: x + 6, y } } }) },
+  { id: 'g_saw', label: 'Saw', icon: '✷', hint: 'A deadly saw gliding back and forth. Drag its path points.', idPrefix: 'saw', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Saw', w: 1, h: 1, look: { shape: 'round' }, effect: { kind: 'kill', cause: 'spike' }, affects: { player: true, bodies: false }, path: [{ x, y }, { x: x + 4, y }], speed: 3 }) },
+  { id: 'g_death', label: 'Death zone', icon: '☠', hint: 'Kills Pip on touch. Make it invisible for a nasty surprise.', idPrefix: 'kill', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Death zone', w: 2, h: 1, look: { shape: 'field' }, effect: { kind: 'kill' }, affects: { player: true, bodies: false } }) },
+  { id: 'g_coin', label: 'Coin', icon: '●', hint: 'Adds 1 to the “coins” counter (shown on screen). Use it in conditions: coins ≥ 5 opens…', idPrefix: 'coin', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Coin', w: 0.5, h: 0.5, dx: 0.25, dy: 0.25, look: { shape: 'round', glow: true }, effect: { kind: 'collect', var: 'coins', amount: 1 }, affects: { player: true, bodies: false } }) },
+  { id: 'g_key', label: 'Key', icon: '⚷', hint: 'Adds 1 to “keys”. Pair it with a Lock.', idPrefix: 'key', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Key', w: 0.75, h: 0.75, dx: 0.125, dy: 0.125, look: { shape: 'round', glyph: '⚷', glow: true }, effect: { kind: 'collect', var: 'keys', amount: 1 }, affects: { player: true, bodies: false } }) },
+  { id: 'g_lock', label: 'Lock', icon: '▮', hint: 'A solid barrier that opens once keys ≥ 1. Change the condition in the inspector.', idPrefix: 'lock', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Lock', w: 1, h: 2, dy: -1, solid: 'solid', look: { shape: 'box', glyph: '⚷' }, effect: { kind: 'none' }, when: { type: 'var', name: 'keys', op: '<', value: 1 } }) },
+  { id: 'g_block', label: 'Moving block', icon: '■', hint: 'A solid block on a path. Carries riders.', idPrefix: 'block', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Block', w: 2, h: 1, solid: 'solid', look: { shape: 'box' }, effect: { kind: 'none' }, path: [{ x, y }, { x, y: y - 3 }], speed: 2 }) },
+  { id: 'g_belt', label: 'Belt block', icon: '⇉', hint: 'A solid block that carries what stands on it.', idPrefix: 'belt', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Belt', w: 3, h: 1, solid: 'solid', look: { shape: 'box' }, effect: { kind: 'conveyor', speed: 4 } }) },
+  { id: 'g_ledge', label: 'Ledge', icon: '▔', hint: 'Solid from above only: jump up through it, ↓ to drop.', idPrefix: 'ledge', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Ledge', w: 3, h: 0.25, solid: 'oneWay', look: { shape: 'box' }, effect: { kind: 'none' } }) },
+  { id: 'g_check', label: 'Checkpoint orb', icon: '✦', hint: 'Touch to make it the respawn point.', idPrefix: 'orb', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Checkpoint', w: 1, h: 1, look: { shape: 'round', glow: true }, effect: { kind: 'checkpoint' }, affects: { player: true, bodies: false } }) },
+  { id: 'g_goal', label: 'Goal', icon: '⚑', hint: 'Touch it to win. Use it instead of (or as well as) the door.', idPrefix: 'goal', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Goal', w: 1, h: 2, dy: -1, look: { shape: 'box', glyph: '⚑', glow: true }, effect: { kind: 'win' }, affects: { player: true, bodies: false } }) },
+  { id: 'g_custom', label: 'Custom gadget', icon: '✚', hint: 'A blank part. Give it a look, a shape, an effect, a path and logic in the inspector.', idPrefix: 'gadget', group: 'Gadgets',
+    make: (id, x, y) => gadget(id, x, y, { name: 'Gadget', w: 1, h: 1, look: { shape: 'box' }, effect: { kind: 'none' } }) },
+];
+
 export const DECOR: Item[] = DECOR_IDS.map((d, i) => ({ id: `decor_${d}`, label: DECOR_LABEL[d], icon: '', hint: DECOR_LABEL[d], decor: d, glyph: decorChar(i) }));
 
 export const ZONES: Item[] = [
@@ -85,13 +131,13 @@ export function itemsFor(layer: LayerId): Item[] {
   switch (layer) {
     case 'terrain': return TERRAIN;
     case 'bg': case 'fg': return DECOR;
-    case 'objects': return OBJECTS;
+    case 'objects': return [...OBJECTS, ...GADGETS];
     case 'zones': return ZONES;
     case 'images': return [];
   }
 }
 
-export const findItem = (id: string): Item | undefined => [...TERRAIN, ...OBJECTS, ...DECOR, ...ZONES].find((i) => i.id === id);
+export const findItem = (id: string): Item | undefined => [...TERRAIN, ...OBJECTS, ...GADGETS, ...DECOR, ...ZONES].find((i) => i.id === id);
 export const itemForGlyph = (layer: LayerId, g: string): Item | undefined =>
   layer === 'terrain' ? TERRAIN.find((i) => i.glyph === g) : layer === 'bg' || layer === 'fg' ? DECOR.find((i) => i.glyph === g) : undefined;
 

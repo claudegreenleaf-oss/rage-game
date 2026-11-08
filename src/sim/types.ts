@@ -81,13 +81,85 @@ export interface BenchObj { type: 'bench'; id: string; x: number; y: number }
 export interface RelicObj { type: 'relic'; id: string; x: number; y: number; kind: 'note' | 'jar'; text?: string }
 /** A light sensor: "pressed" while Pip's flashlight beam hits it (link gates/lasers/events to it like a plate). */
 export interface SensorObj { type: 'sensor'; id: string; x: number; y: number }
+/**
+ * A custom mechanic assembled from parts in the editor: a box that can look like anything (colour, shape or
+ * a pixel-art image), be solid / one-way / passable, do something to whatever touches it, move along a path,
+ * and be switched on and off by a pad, a sensor, a variable or events. Touching it also fires `touch` events.
+ */
+export interface GadgetObj {
+  type: 'gadget'; id: string;
+  /** Top-left in tiles (fractional ok) and size in tiles (0.25-64). */
+  x: number; y: number; w: number; h: number;
+  /** Display name in the editor (e.g. "Spring"). */
+  name?: string;
+  look?: {
+    /** '#rrggbb'. Default per effect. */
+    color?: string;
+    shape?: 'box' | 'round' | 'spikes' | 'field' | 'none';
+    /** A PixelArt id (from level.images) drawn stretched over the gadget instead of the shape. */
+    art?: string;
+    /** A short symbol drawn in the middle (e.g. '↑'). */
+    glyph?: string;
+    glow?: boolean;
+  };
+  /** 'solid' blocks like plating (and carries riders when moving); 'oneWay' only from above. Default 'none'. */
+  solid?: 'none' | 'solid' | 'oneWay';
+  effect: GadgetEffect;
+  /** Who the effect applies to. Default both. */
+  affects?: { player?: boolean; bodies?: boolean };
+  /** Initial state. Default true. Off gadgets are not solid and do nothing (drawn faded). */
+  on?: boolean;
+  /** On only while this pad/sensor is pressed (or while it isn't, with invert). Overrides `on`/events. */
+  link?: string;
+  invert?: boolean;
+  /** On only while this condition holds (checked every tick). */
+  when?: Condition;
+  /** Movement: absolute tile waypoints of the top-left; the first is the start. */
+  path?: Pt[];
+  /** Tiles per second. */
+  speed?: number;
+  /** Loop back to the first point (else ping-pong). */
+  loop?: boolean;
+  /** 'always' (default when a path exists), 'whenOn' (moves only while on), 'trigger' (waits for a gadget start action). */
+  move?: 'always' | 'whenOn' | 'trigger';
+  /** Disappears after its first touch (until respawn). */
+  once?: boolean;
+}
+
+/** What a gadget does to an entity touching (overlapping, or standing on, if solid) it. Numbers in tiles and seconds. */
+export type GadgetEffect =
+  | { kind: 'none' }
+  /** Kills Pip; bodies are unaffected. */
+  | { kind: 'kill'; cause?: DeathType }
+  /** Launches straight up to about `height` tiles. */
+  | { kind: 'bounce'; height: number }
+  /** Sets velocity (tiles/s; y down is positive). */
+  | { kind: 'launch'; vx: number; vy: number }
+  /** Constant acceleration while inside (tiles/s²): fans, wind, updrafts. */
+  | { kind: 'force'; ax: number; ay: number }
+  /** Gravity multiplier while inside (0 = float, 0.3 = moon, 2 = heavy). */
+  | { kind: 'gravity'; scale: number }
+  /** Moves the entity to a tile point, or to the centre of another gadget (by id). */
+  | { kind: 'teleport'; to: Pt | string }
+  /** Slows horizontal and vertical speed while inside (0 = stuck, 1 = no effect). */
+  | { kind: 'slow'; factor: number }
+  /** Carries things standing on it (tiles/s; needs solid). */
+  | { kind: 'conveyor'; speed: number }
+  /** Becomes Pip's respawn point. */
+  | { kind: 'checkpoint' }
+  /** Pip picks it up: adds `amount` (default 1) to variable `var` (if set) and disappears. */
+  | { kind: 'collect'; var?: string; amount?: number }
+  /** Touching it wins the level, like reaching the door. */
+  | { kind: 'win' };
+export type GadgetEffectKind = GadgetEffect['kind'];
+
 /** Decorative light source (render only). */
 export interface LightObj { type: 'light'; id: string; x: number; y: number; color?: string; radius?: number; flicker?: boolean }
 
 export type LevelObject =
   | SpawnObj | DoorObj | SignObj | PopupObj | DropperObj | CrusherObj
   | PlateObj | GateObj | PlatformObj | LaserObj | LabelObj
-  | VineObj | CrateObj | BenchObj | RelicObj | LightObj | SensorObj;
+  | VineObj | CrateObj | BenchObj | RelicObj | LightObj | SensorObj | GadgetObj;
 export type ObjType = LevelObject['type'];
 
 export interface Zone { id: string; x: number; y: number; w: number; h: number }
@@ -102,7 +174,50 @@ export type Trigger =
   | { type: 'timer'; ticks: number }
   | { type: 'deathCountAtLeast'; n: number }
   /** target: an object id, or '@raft' / '@corpse'. */
-  | { type: 'playerOn'; target: string };
+  | { type: 'playerOn'; target: string }
+  /** Every life start (level load, respawn, restart), after objects are built. */
+  | { type: 'start' }
+  /** Repeats every `ticks` (first at `phase`, default `ticks`). */
+  | { type: 'every'; ticks: number; phase?: number }
+  | { type: 'playerLeaves'; zone: string }
+  /** Pip dies (any cause, or one cause). Fires before the respawn; delayed actions are dropped by the respawn. */
+  | { type: 'playerDies'; cause?: DeathType }
+  /** Pip starts touching an object (overlap or standing on): gadgets, crates, doors, vines, relics... */
+  | { type: 'touch'; target: string }
+  /** A body or crate starts touching a gadget or zone-like object. */
+  | { type: 'bodyTouch'; target: string }
+  /** A relic or a collect-gadget is picked up. */
+  | { type: 'collect'; target: string }
+  /** A button is pressed (edge). */
+  | { type: 'key'; key: 'jump' | 'down' | 'left' | 'right' }
+  /** The condition becomes true (edge: false → true). */
+  | { type: 'becomes'; cond: Condition }
+  /** Another event sent this signal (action `signal`). */
+  | { type: 'signal'; name: string };
+
+/** A test on the level state, used by event `if`s, `becomes` triggers and gadget `when`s. */
+export type Condition =
+  | { type: 'var'; name: string; op: CmpOp; value: number }
+  | { type: 'pressed'; plate: string; is: boolean }
+  | { type: 'deaths'; op: CmpOp; value: number }
+  | { type: 'gadgetOn'; target: string; is: boolean }
+  | { type: 'collected'; target: string; is: boolean }
+  /** Pip is inside a zone. */
+  | { type: 'inZone'; zone: string; is: boolean }
+  /** Number of bodies (not crates) in the room. */
+  | { type: 'bodies'; op: CmpOp; value: number };
+export type CmpOp = '==' | '!=' | '<' | '<=' | '>' | '>=';
+
+/** A level variable: a number events can set, add to and test. */
+export interface LevelVar {
+  name: string;
+  /** Starting value. */
+  value: number;
+  /** Keep the value across deaths (default: reset every life, like everything else). */
+  keep?: boolean;
+  /** Show it on the HUD as "label: value" (e.g. "Keys"). */
+  show?: string;
+}
 
 interface ActionBase { delay?: number }
 export type Action = ActionBase & (
@@ -124,10 +239,43 @@ export type Action = ActionBase & (
   | { type: 'sfx'; name: string }
   /** Starts a platform whose start condition is 'trigger'. */
   | { type: 'startPlatform'; target: string }
+  | { type: 'setVar'; name: string; op: 'set' | 'add' | 'sub'; value: number }
+  /** Fires every event with a matching `signal` trigger (chains are capped at 16 deep per tick). */
+  | { type: 'signal'; name: string }
+  | { type: 'kill'; cause?: DeathType }
+  /** Moves Pip to a tile point (top-left of the tile Pip stands in). */
+  | { type: 'teleport'; to: Pt }
+  /** Sets Pip's velocity (tiles/s). */
+  | { type: 'launch'; vx: number; vy: number }
+  /** Moves the respawn point. */
+  | { type: 'setSpawn'; to: Pt }
+  /** Changes a rule for the rest of this life (gravity, jump, speed, bounce multipliers). */
+  | { type: 'setRule'; rule: 'gravity' | 'jump' | 'speed' | 'bounce'; value: number }
+  | { type: 'ability'; wallJump?: boolean; airJumps?: number }
+  | { type: 'gadget'; target: string; op: 'on' | 'off' | 'toggle' | 'start' | 'stop' | 'reverse' }
+  /** Drops a crate at a tile point. */
+  | { type: 'spawnCrate'; at: Pt }
+  /** A caption at the bottom of the screen (never over Pip). */
+  | { type: 'message'; text: string; seconds?: number }
+  /** Wins the level now. */
+  | { type: 'win' }
+  /** Switches the music to a built-in slot (0-10). */
+  | { type: 'music'; slot: number }
 );
 export type ActionType = Action['type'];
 
-export interface LevelEvent { trigger: Trigger; actions: Action[]; once?: boolean }
+export interface LevelEvent {
+  trigger: Trigger;
+  actions: Action[];
+  /** Fires at most once per life. */
+  once?: boolean;
+  /** Only fires while all of these hold. */
+  if?: Condition[];
+  /** Editor label ("Open the vault"). */
+  name?: string;
+  /** false: ignored (kept for later). */
+  enabled?: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Customization (editor): art layers, pixelated images, audio, rules
@@ -222,8 +370,10 @@ export interface LevelData {
   kind?: 'chamber' | 'zone';
   /** Visual biome (1 sterile wing, 2 flooded bio-lab, 3 deep containment). */
   biome?: number;
-  /** Movement abilities in this room. Wall-slide/jump defaults to on in zones, off in chambers. */
-  abilities?: { wallJump?: boolean };
+  /** Movement abilities in this room. Wall-slide/jump defaults to on. */
+  abilities?: { wallJump?: boolean; /** Extra jumps in mid-air (0-3, default 0). */ airJumps?: number };
+  /** Level variables for events and gadgets. */
+  vars?: LevelVar[];
   /** Passages to other rooms (connected world only). */
   exits?: Exit[];
   /** Decor layers: `height` rows of `width` chars each (see DECOR_IDS). */
@@ -342,4 +492,9 @@ export type SimEvent =
   | { t: 'crumble'; cells: Pt[] }
   | { t: 'collect'; id: string; kind: 'note' | 'jar' }
   | { t: 'checkpoint'; id: string }
-  | { t: 'exit'; id: string };
+  | { t: 'exit'; id: string }
+  | { t: 'gadget'; id: string; what: 'touch' | 'on' | 'off' | 'bounce' | 'teleport' | 'collect' }
+  | { t: 'airJump'; x: number; y: number }
+  | { t: 'message'; text: string; seconds: number }
+  | { t: 'music'; slot: number }
+  | { t: 'var'; name: string; value: number };

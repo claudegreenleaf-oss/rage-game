@@ -44,10 +44,10 @@ export function validateLevel(raw: unknown): ValidationResult {
   const errors: string[] = [];
   const l = raw as Partial<LevelData>;
   if (!l || typeof l !== 'object') return { ok: false, errors: ['not an object'] };
-  const big = l.kind === 'zone';
-  const maxW = big ? 240 : 32, maxH = big ? 120 : 18;
+  // Any kind of room can be any size, from a closet to a giant hall.
+  const maxW = 256, maxH = 128;
   if (typeof l.width !== 'number' || l.width < 4 || l.width > maxW) errors.push(`width must be 4..${maxW}`);
-  if (typeof l.height !== 'number' || l.height < 4 || l.height > maxH) errors.push(`height must be 4..${maxH}`);
+  if (typeof l.height !== 'number' || l.height < 3 || l.height > maxH) errors.push(`height must be 3..${maxH}`);
   if (!Array.isArray(l.tiles) || l.tiles.length !== l.height) errors.push('tiles must have `height` rows');
   else
     l.tiles.forEach((row, i) => {
@@ -57,12 +57,15 @@ export function validateLevel(raw: unknown): ValidationResult {
   if (!Array.isArray(l.objects)) errors.push('objects missing');
   else {
     if (!l.objects.some((o) => o.type === 'spawn')) errors.push('needs a spawn');
-    if (!l.objects.some((o) => o.type === 'door')) errors.push('needs a door');
+    const canWin = l.objects.some((o) => o.type === 'door' || (o.type === 'gadget' && o.effect?.kind === 'win')) ||
+      (Array.isArray(l.events) && l.events.some((e) => e?.actions?.some((a) => a.type === 'win')));
+    if (!canWin) errors.push('needs a door');
     const ids = new Set<string>();
     for (const o of l.objects) {
       if (!o || typeof o.id !== 'string') errors.push('object without id');
       else if (ids.has(o.id)) errors.push(`duplicate id ${o.id}`);
       else ids.add(o.id);
+      if (o && o.type === 'gadget' && (!o.effect || typeof o.effect.kind !== 'string' || !(o.w > 0) || !(o.h > 0))) errors.push(`gadget ${o.id}: needs an effect and a size`);
     }
   }
   if (!Array.isArray(l.zones)) errors.push('zones missing');

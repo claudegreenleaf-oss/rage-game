@@ -5,7 +5,8 @@ import {
   GROUND_ACCEL, GROUND_DECEL, JUMP_BUFFER, PUSH_SPEED, STEP_UP,
 } from './constants';
 import { overlaps, sweepX, sweepY } from './physics';
-import { canWallJump, type World } from './world';
+import type { World } from './world';
+import { gadgetField, scaledGravity } from './gadgets';
 import { pushCorpse } from './corpse';
 
 const approach = (v: number, target: number, step: number): number =>
@@ -51,8 +52,16 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
   let a: number;
   if (p.grounded) a = dir !== 0 && Math.sign(p.vx) !== -dir ? GROUND_ACCEL : GROUND_DECEL;
   else a = dir !== 0 ? AIR_ACCEL : AIR_DECEL;
-  if (!p.grounded && Math.abs(p.vx) > T.run && Math.sign(p.vx) === dir) p.vx -= Math.sign(p.vx);
+  const field = w.obj.gadgets.length ? gadgetField(w, p, true) : null;
+  const fax = field?.ax ?? 0;
+  if (!p.grounded && Math.abs(p.vx) > T.run && (Math.sign(p.vx) === dir || w.momentum > 0)) p.vx -= Math.sign(p.vx);
+  else if (fax !== 0 && dir === 0 && Math.sign(p.vx) === Math.sign(fax)) { /* wind: no braking with it */ }
   else p.vx = approach(p.vx, target, a);
+  if (fax !== 0) {
+    p.vx += fax;
+    const cap = T.run * 2;
+    if (Math.abs(p.vx) > cap && Math.sign(p.vx) === Math.sign(fax)) p.vx = Math.sign(fax) * cap;
+  }
 
   // Jump: buffer + coyote time.
   p.jumpHeld = (input & Btn.Jump) !== 0;
@@ -62,7 +71,8 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
   const support = w.supports.get(-1);
   const onOneWay = p.grounded && (
     (support?.kind === 'corpse' && w.corpseById(support.id)?.stage === 2) ||
-    (support?.kind === 'obj' && !!w.obj.platforms.find((pl) => pl.id === support.id)?.def.oneWay));
+    (support?.kind === 'obj' && (!!w.obj.platforms.find((pl) => pl.id === support.id)?.def.oneWay ||
+      w.obj.gadgets.find((g) => g.id === support.id)?.def.solid === 'oneWay')));
   if (input & Btn.Down && onOneWay) {
     p.dropThrough = 10;
     p.grounded = false;
@@ -70,12 +80,15 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
   }
 
   // Wall slide (exploration zones only): pressing into a wall while falling slows the fall.
-  const walls = canWallJump(w.level);
+  const walls = w.abil.wallJump;
   let sliding = false;
   if (walls && !p.grounded) {
     if (rawDir !== 0 && touchingWall(w, rawDir) && p.vy > 0) { sliding = true; p.wallDir = rawDir as -1 | 1; p.wallCoyote = WALL_COYOTE; }
     else if (p.wallCoyote > 0) p.wallCoyote--;
   } else p.wallCoyote = 0;
+
+  // Air jumps refill on the ground, against a wall or on a vine.
+  if (w.abil.airJumps > 0 && w.airLeft < w.abil.airJumps && (p.grounded || touchingWall(w, -1) || touchingWall(w, 1))) w.airLeft = w.abil.airJumps;
 
   let jumpedNow = false;
   if (walls && p.jumpBuffer > 0 && p.coyote <= 0 && p.wallCoyote > 0 && !p.grounded) {
@@ -95,9 +108,24 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
     p.grounded = false;
     jumpedNow = true;
     w.fx.push({ t: 'jump', x: p.x + (p.w >> 1), y: p.y + p.h });
+  } else if (pressed & Btn.Jump && !p.grounded && w.airLeft > 0) {
+    // Extra jump in mid-air.
+    w.airLeft--;
+    p.vy = -T.jump;
+    p.jumping = true;
+    p.bouncing = false;
+    p.jumpBuffer = 0;
+    jumpedNow = true;
+    w.fx.push({ t: 'airJump', x: p.x + (p.w >> 1), y: p.y + p.h });
   } else {
     const cut = p.vy < 0 && p.jumping && !p.jumpHeld;
-    p.vy = Math.min(p.vy + (cut ? T.gravityCut : T.gravity), T.maxFall);
+    const g = field && field.gravity !== 1 ? scaledGravity(cut ? T.gravityCut : T.gravity, field.gravity) : (cut ? T.gravityCut : T.gravity);
+    p.vy = Math.min(p.vy + g, T.maxFall);
+    if (field && field.gravity <= 0) p.vy = approach(p.vy, 0, 2);
+  }
+  if (field) {
+    if (field.ay !== 0) p.vy = Math.max(-T.maxFall, Math.min(p.vy + field.ay, T.maxFall));
+    if (field.slow < 1) { p.vx = Math.round(p.vx * field.slow); p.vy = Math.round(p.vy * field.slow); }
   }
   if (sliding && p.vy > WALL_SLIDE_MAX) {
     p.vy = WALL_SLIDE_MAX;
@@ -147,6 +175,7 @@ function tryGrab(w: World): void {
   pt.px = pt.x - p.vx * 0.9;
   pt.py = pt.y - Math.max(0, p.vy) * 0.4;
   p.hang = { vine: best.vine, seg: best.seg };
+  w.airLeft = w.abil.airJumps;
   p.jumping = false; p.bouncing = false; p.coyote = 0;
   w.fx.push({ t: 'grab', vine: v.id });
 }
@@ -280,7 +309,7 @@ function moveY(w: World): void {
     if (hit.kind === 'corpse') {
       const c = w.corpseById(hit.id as number);
       if (c && c.stage === 1 && dy >= BOUNCE_MIN_VY) {
-        const v = launchForCached(Math.round(BOUNCE_RISE * (w.level.rules?.bounce ?? 1)) - c.h, w.tune.gravity);
+        const v = launchForCached(Math.round(BOUNCE_RISE * w.tune.bounce) - c.h, w.tune.gravity);
         p.vy = -v;
         p.bouncing = true;
         p.jumping = false;

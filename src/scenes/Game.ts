@@ -222,6 +222,11 @@ export class Game extends Phaser.Scene {
     this.scene.bringToTop('Map');
   }
 
+  /** Events the scene (not the view) reacts to: a level event switching the music to a built-in slot. */
+  private sceneEvents(fx: readonly { t: string }[]): void {
+    for (const e of fx) if (e.t === 'music') music.play((e as unknown as { slot: number }).slot);
+  }
+
   /** Restart from scratch (pause menu): same as pressing R. */
   restartLevel(): void { this.world.step(Btn.Restart); this.view.onEvents(this.world.fx); this.world.step(0); }
 
@@ -258,10 +263,12 @@ export class Game extends Phaser.Scene {
           this.campaign.step(input);
           if (this.campaign.roomRev !== this.roomRev) { this.changeRoom(); this.acc -= STEP_MS; steps++; continue; }
           this.view.onEvents(this.campaign.fx);
+          this.sceneEvents(this.campaign.fx);
           if (this.campaign.fx.some((e) => e.t === 'collect' || e.t === 'checkpoint')) this.saveWorld();
         } else {
           this.world.step(input);
           this.view.onEvents(this.world.fx);
+          this.sceneEvents(this.world.fx);
         }
         this.acc -= STEP_MS;
         steps++;

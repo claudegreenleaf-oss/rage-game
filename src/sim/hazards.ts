@@ -1,7 +1,7 @@
 // Level objects and hazards: runtime state, kinematics, kill checks, plates and gates.
 import {
   U,
-  type Box, type CrusherObj, type DoorObj, type DropperObj, type GateObj, type LaserObj, type LevelObject,
+  type Box, type CrusherObj, type DoorObj, type DropperObj, type GadgetObj, type GateObj, type LaserObj, type LevelObject,
   type PlateObj, type PlatformObj, type PopupObj, type Pt, type SignObj, type TileGlyph, type VineObj,
 } from './types';
 import {
@@ -12,6 +12,7 @@ import { blocked, overlaps, overlapX, sweepX, sweepY, type Solid } from './physi
 import { pinCorpse, type DeathInfo } from './corpse';
 import type { World } from './world';
 import { isSolidGlyph } from './level';
+import { updateGadgets } from './gadgets';
 
 export const PLATE_H = 12;
 /** Vine segment length (units). */
@@ -36,6 +37,25 @@ export interface RtDoor extends Box { def: DoorObj; id: string; vy: number; vx: 
 export interface RtPopup { def: PopupObj; id: string; up: boolean }
 export interface RtSign { def: SignObj; id: string; override: string | null }
 export interface VinePt { x: number; y: number; px: number; py: number }
+export interface RtGadget extends Box {
+  def: GadgetObj; id: string;
+  /** Previous position (render interpolation). */
+  px: number; py: number;
+  /** Effective on-state this tick (link, else `when`, else `base`). */
+  on: boolean;
+  /** Gone (collected, or `once` after its touch): not solid, no effect, not drawn. */
+  gone: boolean;
+  /** State set by `on` / `off` / `toggle` actions (and the initial `def.on`). */
+  base: boolean;
+  /** Path in sim units, the target waypoint index and direction. */
+  pts: Pt[]; seg: number; dir: 1 | -1;
+  /** Movement allowed (false until a `start` action for move 'trigger'; false after `stop`). */
+  run: boolean;
+  /** Entity keys (-1 = Pip, else corpse id) touching last tick. */
+  touching: Set<number>;
+  /** Entities that just arrived by teleport and must leave before this gadget can teleport them again. */
+  suppress: Set<number>;
+}
 export interface RtVine { def: VineObj; id: string; pts: VinePt[]; seg: number }
 
 export class ObjectState {
@@ -50,6 +70,7 @@ export class ObjectState {
   popups: RtPopup[] = [];
   signs: RtSign[] = [];
   vines: RtVine[] = [];
+  gadgets: RtGadget[] = [];
   /** Crumbling-floor cells being stood on: cell key -> ticks. */
   crumble = new Map<number, number>();
   byId = new Map<string, unknown>();
@@ -63,6 +84,7 @@ export class ObjectState {
     for (const c of this.crushers) out.push({ x: c.x, y: c.y, w: c.w, h: c.h, kind: 'crusher', oneWay: false, id: c.id });
     for (const g of this.gates) { const b = gateBox(g); if (b.h > 0) out.push({ ...b, kind: 'gate', oneWay: false, id: g.id }); }
     for (const p of this.platforms) out.push({ x: p.x, y: p.y, w: p.w, h: p.h, kind: 'platform', oneWay: !!p.def.oneWay, id: p.id });
+    for (const g of this.gadgets) if (g.on && !g.gone && g.def.solid && g.def.solid !== 'none') out.push({ x: g.x, y: g.y, w: g.w, h: g.h, kind: 'platform', oneWay: g.def.solid === 'oneWay', id: g.id });
     this.movers.forEach((m, i) => {
       for (const c of m.cells) if (c.g === '#' || c.g === '=') out.push({ x: c.cx * U + m.ox, y: c.cy * U + m.oy, w: U, h: U, kind: 'mover', oneWay: false, id: `mover${i}` });
     });
@@ -122,6 +144,16 @@ export function buildObjects(w: World): ObjectState {
         const v: RtVine = { def: o, id: o.id, pts, seg: VINE_SEG };
         s.vines.push(v); s.byId.set(o.id, v); break;
       }
+      case 'gadget': {
+        const pts = (o.path ?? []).map((p) => ({ x: Math.round(p.x * U), y: Math.round(p.y * U) }));
+        const x0 = pts.length ? pts[0]!.x : Math.round(o.x * U), y0 = pts.length ? pts[0]!.y : Math.round(o.y * U);
+        const g: RtGadget = {
+          def: o, id: o.id, x: x0, y: y0, w: Math.round(o.w * U), h: Math.round(o.h * U), px: x0, py: y0,
+          on: o.on ?? true, base: o.on ?? true, gone: o.effect.kind === 'collect' && w.collectedGadgets.has(o.id),
+          pts, seg: pts.length > 1 ? 1 : 0, dir: 1, run: (o.move ?? 'always') !== 'trigger', touching: new Set(), suppress: new Set(),
+        };
+        s.gadgets.push(g); s.byId.set(o.id, g); break;
+      }
       default: break;
     }
   }
@@ -159,7 +191,7 @@ export function carryRiders(w: World, key: number, dx: number, dy: number, depth
   return { dx: rx, dy: ry };
 }
 
-function carryObjectRiders(w: World, id: string, dx: number, dy: number): void {
+export function carryObjectRiders(w: World, id: string, dx: number, dy: number): void {
   if (dx === 0 && dy === 0) return;
   for (const r of w.ridersOf((s) => s.kind === 'obj' && s.id === id)) carryRiders(w, r, dx, dy, 0);
 }
@@ -203,6 +235,7 @@ export function updateKinematics(w: World): void {
     if (m.ox === t.x && m.oy === t.y) { if (m.seg < m.pts.length - 1) m.seg++; else m.done = true; }
   });
 
+  updateGadgets(w);
   updateVines(w);
   updateCrumble(w);
   updateDroppers(w);

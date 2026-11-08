@@ -2,6 +2,7 @@
 // benches, relics, and the campaign's room transitions.
 import { describe, expect, it } from 'vitest';
 import { hold, mk } from './helpers';
+import { allLevels } from '../scripts/levels-node';
 import { World } from '../src/sim/world';
 import { Campaign, validateWorld, type WorldDef } from '../src/sim/campaign';
 import { Btn, U, type LevelData } from '../src/sim/types';
@@ -40,12 +41,19 @@ function climb(l: LevelData): number {
 }
 
 describe('wall-slide and wall-jump', () => {
-  it('climb a shaft by wall-jumping in exploration zones, but not in puzzle chambers', () => {
+  it('climb a shaft by wall-jumping (on by default), but not where a level turns it off', () => {
     const zone = mk(SHAFT, { id: 'Z' });
     zone.kind = 'zone';
     const chamber = mk(SHAFT, { id: 'C' });
+    const off = mk(SHAFT, { id: 'O' });
+    off.abilities = { wallJump: false };
     expect(climb(zone)).toBeGreaterThan(3.2); // a plain jump is ~2.4
-    expect(climb(chamber)).toBeLessThan(2.6);
+    expect(climb(chamber)).toBeGreaterThan(3.2);
+    expect(climb(off)).toBeLessThan(2.6);
+  });
+
+  it('every shipped puzzle chamber keeps wall jumping off (they were designed without it)', () => {
+    for (const l of allLevels().filter((x) => /^L\d+$/.test(x.id))) expect(l.abilities?.wallJump, l.id).toBe(false);
   });
 
   it('pressing into a wall while falling slows the fall', () => {

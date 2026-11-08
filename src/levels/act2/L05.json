@@ -78,5 +78,8 @@
     "dir": 1,
     "speed": 2.5
   },
-  "par": 3
+  "par": 3,
+  "abilities": {
+    "wallJump": false
+  }
 }

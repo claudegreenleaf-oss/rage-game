@@ -18,6 +18,7 @@ import { KEY, actPal } from './pixel/pal';
 import { Pixels } from './pixel/particles';
 import { ptext } from './pixel/font';
 import { rng } from './rng';
+import { GadgetLayer } from './gadgets';
 
 const TAUNTS: Array<[number, string]> = [
   [1, 'Oops.'], [3, 'Again? Bold.'], [5, 'Have you tried not dying?'], [10, "I'm keeping these, by the way."],
@@ -48,7 +49,7 @@ export interface ViewOptions {
 }
 
 /** The single message the HUD should show right now. */
-export interface ViewMessage { key: string; text: string; kind: 'lore' | 'stuck' | 'sign' | 'taunt' }
+export interface ViewMessage { key: string; text: string; kind: 'lore' | 'stuck' | 'sign' | 'taunt' | 'event' }
 
 interface CorpseSpr { img: Phaser.GameObjects.Image; flies: Phaser.GameObjects.Image[]; squash: number; pop: number; seed: number; hideUntil: number }
 interface Pos { x: number; y: number }
@@ -112,6 +113,10 @@ export class LevelView {
   readonly dark: boolean;
   private beamErase: Phaser.GameObjects.Graphics | null = null;
   private beamGlow: Phaser.GameObjects.Graphics | null = null;
+  private gadgets: GadgetLayer | null = null;
+  private evMsg: { text: string; t: number; key: string } | null = null;
+  private evSeq = 0;
+  private varVals = new Map<string, number>();
   private sensors = new Map<string, { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; lit: number }>();
   /** Additive halos are toned down on the bright walls of the upper wings. */
   private haloK = 1;
@@ -120,6 +125,7 @@ export class LevelView {
   private prev = new Map<string, Pos>();
   private t = 0;
   private terrainDirty = false;
+  private terrainSigLast = '';
   private pipAnim = { land: 0, blinkT: 2, runDist: 0, pop: 1, pushT: 0, pullT: 0, kick: 0 };
   private deadAt: Pos | null = null;
   private stuckTicks = 0;
@@ -128,7 +134,8 @@ export class LevelView {
   private signLinger = new Map<string, number>();
   private tauntT = 0;
   private tauntText = '';
-  private lore: { text: string; t: number; key: string } | null = null;
+  private lore: { text: string; t: number; key: string; ox: number; oy: number } | null = null;
+  private labels: Array<{ txt: Phaser.GameObjects.BitmapText; back: Phaser.GameObjects.Rectangle | null; box: { x: number; y: number; w: number; h: number }; a: number }> = [];
   /** This view draws level.decor and level.images itself (the editor skips its own preview copy). */
   readonly drawsCustomArt = true;
   /** A one-off hint the HUD may show (once per save; consumed by the HUD). */
@@ -139,12 +146,14 @@ export class LevelView {
   constructor(private scene: Phaser.Scene, public world: World, private hooks: ViewHooks, opts: ViewOptions = {}) {
     this.dark = !!world.level.dark && !world.level.credits;
     const add = scene.add;
+    const w0 = world;
     const lvl = world.level;
     this.act = lvl.credits ? 0 : lvl.palette ?? lvl.biome ?? lvl.act ?? 1;
     this.root = add.container(0, 0);
     this.terrainKey = `terrain_${this.id}`;
     this.waterKey = `water_${this.id}`;
     bakeTerrain(scene, this.terrainKey, this.terrainSource());
+    this.terrainSigLast = this.terrainSig();
     this.terrain = add.image(0, 0, this.terrainKey).setOrigin(0);
     this.bgArt = add.container(0, 0);
     this.back = add.container(0, 0);
@@ -189,11 +198,18 @@ export class LevelView {
       const s = (o.size ?? 1) < 0.8 ? 0.5 : Math.max(1, Math.round(o.size ?? 1));
       const txt = ptext(scene, o.x * T, o.y * T, o.text, { scale: s, outline: s >= 1, color: 0xfff4e4, origin: [0.5, 0.5], align: 'center', wrap: Math.min(lvl.width - 2, 26) * T });
       // Small print gets a dark backing so it stays legible over anything behind it.
-      if (s < 1) this.top.add(add.rectangle(txt.x, txt.y, Math.ceil(txt.width) + 4, Math.ceil(txt.height) + 2, KEY.k!, 0.78));
+      const back = s < 1 ? add.rectangle(txt.x, txt.y, Math.ceil(txt.width) + 4, Math.ceil(txt.height) + 2, KEY.k!, 0.78) : null;
+      if (back) this.top.add(back);
       this.top.add(txt);
+      // World-pixel box (tile units x U) so the label can fade while Pip stands in it.
+      this.labels.push({ txt, back, a: 1, box: { x: txt.x - txt.width / 2, y: txt.y - txt.height / 2, w: txt.width, h: txt.height } });
     }
 
     if (opts.atmosphere || this.dark) this.buildAtmosphere();
+    if (w0.obj.gadgets?.length) this.gadgets = new GadgetLayer({ scene, world, viewId: this.id, back: this.back, front: this.front, glow: this.glowLayer, particles: this.particles, haloK: this.dark ? 0.45 : 0.3 });
+    this.resetVars();
+    // Level-start messages fire during world construction, before any view exists.
+    for (const e of world.fx) if (e.t === 'message') this.evMsg = { text: e.text, t: Math.max(1, e.seconds || 4), key: `msg:${++this.evSeq}` };
     this.root.add([this.glowLayer, this.top]);
     this.snapshot();
     this.render(1, 0);
@@ -209,9 +225,18 @@ export class LevelView {
     };
   }
 
+  private terrainSig(): string {
+    const w = this.world;
+    let s = '';
+    for (let cy = 0; cy < w.H; cy++) { let r = ''; for (let cx = 0; cx < w.W; cx++) r += w.tileAt(cx, cy); s += r + '|'; }
+    for (const d of w.obj.droppers) if (d.state !== 'gone' && d.state !== 'fall') s += cellKey(d.def.x, d.def.y) + ',';
+    return s;
+  }
+
   setZoom(_z: number): void { /* pixel art renders at integer zoom; nothing to rescale */ }
 
   destroy(): void {
+    this.gadgets?.destroy();
     this.root.destroy(true);
     this.brush?.destroy();
     this.darkStatic?.destroy();
@@ -382,7 +407,10 @@ export class LevelView {
       this.fgCover = bakeDecorLayer(s, `fg_${this.id}`, lvl.decor.fg, this.world.W, this.world.H, this.act, DECOR_IDS);
       this.fgArt.add(s.add.image(0, 0, `fg_${this.id}`).setOrigin(0));
     }
+    // Images used as a gadget's skin are drawn on the gadget, not at their own spot.
+    const skins = new Set(lvl.objects.flatMap((o) => (o.type === 'gadget' && o.look?.art ? [o.look.art] : [])));
     (lvl.images ?? []).forEach((art, i) => {
+      if (skins.has(art.id)) return;
       const key = `art_${this.id}_${i}`;
       if (!pixelArtTexture(s, key, art)) return;
       const img = s.add.image(R(art.x * T), R(art.y * T), key).setOrigin(0).setAlpha(art.opacity ?? 1);
@@ -565,6 +593,7 @@ export class LevelView {
         }
         case 'splash': fx.splash(P(e.x), P(e.y), 10); audio.play('splash', 1.1, 0.7); break;
         case 'respawn': {
+          this.resetVars();
           this.pipAnim.pop = 0;
           fx.puff(P(e.x), P(e.y) - 6, 10, 7);
           fx.sparkle(P(e.x), P(e.y) - 8, 4, KEY.z!);
@@ -575,6 +604,7 @@ export class LevelView {
           break;
         }
         case 'restart':
+          this.resetVars();
           for (const id of [...this.corpses.keys()]) this.dropCorpse(id);
           fx.puff(P(w.pip.x + w.pip.w / 2), P(w.pip.y + w.pip.h) - 6, 10, 7);
           this.pipAnim.pop = 0;
@@ -651,15 +681,52 @@ export class LevelView {
         case 'collect': {
           const r = this.relics.find((x) => x.o.id === e.id);
           if (r) { fx.sparkle(r.img.x, r.img.y, 14, e.kind === 'jar' ? KEY.c! : 0xffffff); fx.puff(r.img.x, r.img.y, 6, 5, KEY.z!); }
-          if (e.kind === 'note' && r?.o.text) this.lore = { text: r.o.text, t: 7, key: `lore:${e.id}` };
+          if (e.kind === 'note' && r?.o.text) this.lore = { text: r.o.text, t: 6, key: `lore:${e.id}`, ox: this.world.pip.x, oy: this.world.pip.y };
           this.collected = { kind: e.kind };
           audio.play('collect');
           break;
         }
         case 'exit': break;
         case 'step': break;
+        case 'gadget': this.onGadget(e.id, e.what); break;
+        case 'airJump':
+          fx.dust(P(e.x), P(e.y), 5);
+          fx.puff(P(e.x), P(e.y), 4, 3, 0xe8e2d6);
+          audio.play('jump', 1.3, 0.6);
+          break;
+        case 'message': this.evMsg = { text: e.text, t: Math.max(1, e.seconds || 4), key: `msg:${++this.evSeq}` }; break;
+        case 'var': this.varVals.set(e.name, e.value); break;
+        case 'music': break; // handled by the Game scene
+
       }
     }
+  }
+
+  private onGadget(id: string, what: string): void {
+    const g = this.gadgets;
+    const c = g?.centerOf(id);
+    if (!g || !c) return;
+    const fx = this.particles, col = g.colorOf(id);
+    if (what === 'bounce') { g.poke(id); fx.puff(c.x, c.y - 4, 5, 5, col); audio.play('boing', 1.1, 0.6); }
+    else if (what === 'teleport') {
+      const p = this.world.pip;
+      fx.sparkle(c.x, c.y, 8, col); fx.puff(c.x, c.y, 4, 4, col);
+      if (this.world.pipAlive) { const px = P(p.x + p.w / 2), py = P(p.y + p.h / 2); fx.sparkle(px, py, 8, col); fx.puff(px, py, 4, 4, col); }
+      audio.play('pop', 1.5, 0.55);
+    } else if (what === 'collect') { fx.sparkle(c.x, c.y, 10, col); fx.puff(c.x, c.y, 5, 4, col); audio.play('collect', 1, 0.8); }
+  }
+
+  /** Current value of a level variable (the sim's own if it exposes them, else tracked from events). */
+  varValue(name: string): number {
+    const v = (this.world as unknown as { vars?: Map<string, number> | Record<string, number> }).vars;
+    if (v instanceof Map) return v.get(name) ?? 0;
+    if (v && typeof v === 'object' && name in v) return (v as Record<string, number>)[name]!;
+    return this.varVals.get(name) ?? 0;
+  }
+
+  private resetVars(): void {
+    this.varVals.clear();
+    for (const v of this.world.level.vars ?? []) this.varVals.set(v.name, v.value);
   }
 
   // ---------------------------------------------------------------------------
@@ -668,16 +735,22 @@ export class LevelView {
 
   message(): ViewMessage | null {
     const w = this.world;
+    if (this.evMsg) return { key: this.evMsg.key, text: this.evMsg.text, kind: 'event' };
     if (this.lore) return { key: this.lore.key, text: this.lore.text, kind: 'lore' };
     if (w.suggestRestart && w.pipAlive) return { key: 'stuck', text: 'Stuck? Press R to clear the bodies and restart.', kind: 'stuck' };
-    for (const [id, t] of this.signLinger) {
-      if (t < 0.4) continue;
-      const s = w.obj.signs.find((x) => x.id === id);
-      const text = s ? signText(w, s) : '';
-      if (text) return { key: `sign:${id}:${text}`, text, kind: 'sign' };
-    }
     if (this.tauntT > 0 && this.tauntText) return { key: `taunt:${w.deathCount}`, text: this.tauntText, kind: 'taunt' };
     return null;
+  }
+
+  /** Every sign that has something to say right now; `speaking` is the one nearest Pip (after a short linger). The HUD draws the bubbles. */
+  signBubbles(): Array<{ id: string; text: string; x: number; y: number; speaking: boolean }> {
+    const w = this.world, out: Array<{ id: string; text: string; x: number; y: number; speaking: boolean }> = [];
+    for (const s of w.obj.signs) {
+      const text = signText(w, s);
+      if (!text) continue;
+      out.push({ id: s.id, text, x: s.def.x * U + U / 2, y: s.def.y * U, speaking: (this.signLinger.get(s.id) ?? 0) >= 0.4 });
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------------------
@@ -793,8 +866,10 @@ export class LevelView {
     this.t += dt;
     const w = this.world, o = w.obj;
     if (this.terrainDirty) {
-      bakeTerrain(this.scene, this.terrainKey, this.terrainSource());
       this.terrainDirty = false;
+      // Big rooms: skip the (4096x1536) rebake when nothing changed.
+      const sig = this.terrainSig();
+      if (sig !== this.terrainSigLast) { this.terrainSigLast = sig; bakeTerrain(this.scene, this.terrainKey, this.terrainSource()); }
     }
     this.particles.update(dt);
     this.updateRagdolls(dt);
@@ -909,6 +984,7 @@ export class LevelView {
       if (rng.next() < dt * 3) this.particles.motes(cx + rng.range(-6, 6), by - rng.range(0, 14), KEY.j!);
     }
 
+    this.gadgets?.update(alpha, dt);
     this.drawWorldObjects(dt);
     this.drawCorpses(alpha, dt);
     this.drawPip(alpha, dt);
@@ -1078,19 +1154,39 @@ export class LevelView {
       }
     }
     this.tauntT -= dt;
-    if (this.lore) { this.lore.t -= dt; if (this.lore.t <= 0) this.lore = null; }
+    if (this.evMsg) { this.evMsg.t -= dt; if (this.evMsg.t <= 0) this.evMsg = null; }
+    if (this.lore) {
+      this.lore.t -= dt;
+      // Pip has moved on (more than ~5 tiles away, after a moment to read the start): let it go.
+      const far = Math.hypot(w.pip.x - this.lore.ox, w.pip.y - this.lore.oy) > 5 * U;
+      if (this.lore.t <= 0 || (far && this.lore.t < 4.2)) this.lore = null;
+    }
+    // Credit and custom labels step aside (not hide) while Pip is inside them.
+    for (const l of this.labels) {
+      const pad = U / 2;
+      const inside = w.pipAlive && px > l.box.x * U / T - pad && px < (l.box.x + l.box.w) * U / T + pad && py > l.box.y * U / T - pad && py < (l.box.y + l.box.h) * U / T + pad;
+      l.a += ((inside ? 0.2 : 1) - l.a) * Math.min(1, dt * 8);
+      l.txt.setAlpha(l.a); l.back?.setAlpha(l.a);
+    }
   }
 
   private updateAmbience(dt: number): void {
     const w = this.world;
     const pal = actPal(this.act);
-    if (rng.next() < dt * 2.5) this.particles.motes(rng.range(T, (w.W - 1) * T), rng.range(T, (w.H - 1) * T), pal.mossLight);
+    const cam = this.scene.cameras.main;
+    const vx0 = Math.max(T, cam.worldView.x), vx1 = Math.min((w.W - 1) * T, cam.worldView.right);
+    const vy0 = Math.max(T, cam.worldView.y), vy1 = Math.min((w.H - 1) * T, cam.worldView.bottom);
+    if (vx1 > vx0 && vy1 > vy0 && rng.next() < dt * 2.5) this.particles.motes(rng.range(vx0, vx1), rng.range(vy0, vy1), pal.mossLight);
     for (const d of this.drips) {
       d.t -= dt;
       if (d.t <= 0) { d.t = 1.6 + rng.range(0, 2.2); this.particles.spawn(d.x, d.y + 1, { frame: 'drop', vy: 10, g: 260, life: 1.2, fade: true, hit: 'die' }); }
     }
-    if (this.rainCols.length && rng.next() < dt * this.rainCols.length * 0.8) {
-      const cx = this.rainCols[Math.floor(rng.next() * this.rainCols.length)]!;
+    if (this.rainCols.length && rng.next() < dt * Math.min(this.rainCols.length, 24) * 0.8) {
+      // Wide rooms: only columns near the camera rain (the rest is off-screen).
+      const lo = Math.floor(cam.worldView.x / T) - 1, hi = Math.ceil(cam.worldView.right / T) + 1;
+      const vis = this.rainCols.length > 30 ? this.rainCols.filter((c) => c >= lo && c <= hi) : this.rainCols;
+      if (!vis.length) return;
+      const cx = vis[Math.floor(rng.next() * vis.length)]!;
       this.particles.spawn(cx * T + rng.range(0, 16), 0, { frame: 'drop', tint: 0xd8f6ff, vy: 140, g: 300, life: 2, hit: 'die', alpha: 0.7 });
     }
   }
@@ -1183,6 +1279,7 @@ export class LevelView {
     for (const l of this.staticLights) if (l.flicker) stamp(l.x, l.y, Math.sin(this.t * 19 + l.x) > 0.9 ? l.r * 0.6 : l.r);
     for (const d of w.obj.doors) stamp(P(d.x + d.w / 2), P(d.y + d.h / 2), 26);
     for (const b of this.benches) stamp(b.img.x, b.img.y - 8, b.glow.alpha > 0 ? 34 : 18);
+    if (this.gadgets) for (const l of this.gadgets.lights()) stamp(l.x, l.y, l.r, l.a);
     for (const sv of this.sensors.values()) if (sv.lit > 0.1) stamp(sv.img.x, sv.img.y, 20, sv.lit);
     for (const l of w.obj.lasers) {
       if (!l.active || l.beam.w <= 0) continue;

@@ -91,5 +91,8 @@
       "once": true
     }
   ],
-  "par": 1
+  "par": 1,
+  "abilities": {
+    "wallJump": false
+  }
 }

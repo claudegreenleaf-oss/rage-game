@@ -63,5 +63,8 @@
   ],
   "zones": [],
   "events": [],
-  "par": 2
+  "par": 2,
+  "abilities": {
+    "wallJump": false
+  }
 }

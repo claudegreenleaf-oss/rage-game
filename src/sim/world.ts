@@ -1,7 +1,7 @@
 // The deterministic simulation. One call to `step(input)` advances exactly one 60 Hz tick.
 import {
   Btn, U,
-  type Box, type Corpse, type DeathType, type LevelData, type Player, type SimEvent, type TileGlyph,
+  type Box, type Corpse, type DeathType, type LevelData, type LevelRules, type Player, type SimEvent, type TileGlyph,
 } from './types';
 import {
   GRAVITY, GRAVITY_CUT, HITSTOP, JUMP_V, MAX_FALL, PIP_H, PIP_W, PIP_WEIGHT, RESPAWN_DELAY, RUN_SPEED, STAGE_WEIGHT,
@@ -15,6 +15,7 @@ import {
 } from './hazards';
 import { EventEngine } from './triggers';
 import { cloneLevel, isSolidGlyph } from './level';
+import { gadgetEffects, refreshGadgets } from './gadgets';
 
 /** What an entity is resting on. */
 export type Support =
@@ -35,7 +36,20 @@ export interface WorldOptions {
 }
 
 /** Wall-slide/jump is on in exploration zones and off in puzzle chambers unless a level says otherwise. */
-export const canWallJump = (l: LevelData): boolean => l.abilities?.wallJump ?? l.kind === 'zone';
+/** Wall-slide and wall-jump: on unless the level turns it off. */
+export const canWallJump = (l: LevelData): boolean => l.abilities?.wallJump ?? true;
+
+export interface Tune { run: number; jump: number; gravity: number; gravityCut: number; maxFall: number; bounce: number }
+
+/** Movement constants after rule multipliers (each clamped to 0.5-2). */
+export function tuneFor(r: LevelRules): Tune {
+  const k = (v: number | undefined) => Math.max(0.5, Math.min(2, v ?? 1));
+  return {
+    run: Math.round(RUN_SPEED * k(r.speed)), jump: Math.round(JUMP_V * k(r.jump)),
+    gravity: Math.max(1, Math.round(GRAVITY * k(r.gravity))), gravityCut: Math.max(2, Math.round(GRAVITY_CUT * k(r.gravity))), maxFall: MAX_FALL,
+    bounce: k(r.bounce),
+  };
+}
 
 export class World {
   readonly level: LevelData;
@@ -74,7 +88,21 @@ export class World {
   /** Ticks after entering a room during which exits are ignored (so Pip doesn't bounce straight back). */
   exitGrace = 0;
   /** Movement constants after the level's rule multipliers. */
-  readonly tune: { run: number; jump: number; gravity: number; gravityCut: number; maxFall: number };
+  readonly tune: Tune;
+  /** Rules and abilities as they were at level start; `setRule` / `ability` actions change `tune` / `abil` for one life. */
+  private baseRules: LevelRules;
+  abil = { wallJump: false, airJumps: 0 };
+  /** Mid-air jumps left. */
+  airLeft = 0;
+  /** Ticks during which launched speed above running speed decays slowly (set by launch effects). */
+  momentum = 0;
+  /** Level variables. */
+  vars = new Map<string, number>();
+  /** Collect-gadget ids picked up (persist across deaths unless their variable resets; cleared by restart). */
+  collectedGadgets = new Set<string>();
+  /** Ids of relics / collect gadgets picked up this tick (for `collect` triggers). */
+  pickups: string[] = [];
+  private spawnedCrates = 0;
   private lastBench: string | null = null;
   private prevInput = 0;
   private nextCorpseId = 1;
@@ -85,12 +113,9 @@ export class World {
     this.W = level.width;
     this.H = level.height;
     this.collected = opts.collected ?? new Set();
-    const r = level.rules ?? {};
-    const k = (v: number | undefined) => Math.max(0.5, Math.min(2, v ?? 1));
-    this.tune = {
-      run: Math.round(RUN_SPEED * k(r.speed)), jump: Math.round(JUMP_V * k(r.jump)),
-      gravity: Math.max(1, Math.round(GRAVITY * k(r.gravity))), gravityCut: Math.max(2, Math.round(GRAVITY_CUT * k(r.gravity))), maxFall: MAX_FALL,
-    };
+    this.baseRules = level.rules ?? {};
+    this.tune = tuneFor(this.baseRules);
+    this.resetVars(true);
     if (opts.entry) { this.checkpoint = opts.entry; this.exitGrace = 20; }
     this.events = new EventEngine(this);
     this.resetLevel();
@@ -105,6 +130,7 @@ export class World {
 
   step(input: number): void {
     this.fx = [];
+    this.pickups = [];
     this.exitHit = null;
     const pressed = input & ~this.prevInput;
     this.prevInput = input;
@@ -118,6 +144,7 @@ export class World {
     }
     this.lifeTick++;
     this.savePrev();
+    if (this.momentum > 0) this.momentum--;
     this.events.runScheduled();
     updateKinematics(this);
     if (this.pipAlive) updatePlayer(this, input, pressed);
@@ -125,10 +152,11 @@ export class World {
     if (this.pipAlive) this.checkExitsAndPickups();
     updateCorpses(this);
     hazardChecks(this);
+    gadgetEffects(this);
     this.computeSupports();
     updatePlates(this);
     updateGates(this);
-    this.events.evaluate();
+    this.events.evaluate(pressed);
     if (this.pipAlive && !this.won) this.checkWin();
     if (!this.pipAlive && this.hitstop === 0 && this.respawnTimer > 0) {
       this.respawnTimer--;
@@ -150,7 +178,12 @@ export class World {
   resetLevel(): void {
     this.tiles = this.level.tiles.map((row) => row.split('') as TileGlyph[]);
     this.current = { dir: this.level.current?.dir ?? 1, speed: this.level.current?.speed ?? 0 };
+    Object.assign(this.tune, tuneFor(this.baseRules));
+    this.abil = { wallJump: canWallJump(this.level), airJumps: Math.max(0, Math.min(3, Math.round(this.level.abilities?.airJumps ?? 0))) };
+    this.airLeft = this.abil.airJumps;
+    this.momentum = 0;
     this.obj = buildObjects(this);
+    refreshGadgets(this);
     this.lifeTick = 0;
     this.resetCrates();
   }
@@ -184,7 +217,7 @@ export class World {
         }
       } else if (o.type === 'relic' && !this.collected.has(o.id)) {
         const box = { x: o.x * U + 40, y: o.y * U + 40, w: U - 80, h: U - 80 };
-        if (overlaps(p, box)) { this.collected.add(o.id); this.fx.push({ t: 'collect', id: o.id, kind: o.kind }); }
+        if (overlaps(p, box)) { this.collected.add(o.id); this.pickups.push(o.id); this.fx.push({ t: 'collect', id: o.id, kind: o.kind }); }
       }
     }
   }
@@ -211,6 +244,7 @@ export class World {
   }
 
   private respawn(): void {
+    this.resetVars(false);
     this.resetLevel();
     // Reset tiles may now overlap corpses: push each up to the nearest free spot.
     for (const c of [...this.corpses].sort((a, b) => b.y - a.y)) {
@@ -222,6 +256,7 @@ export class World {
     this.computeSupports();
     updatePlates(this, true);
     updateGates(this, true);
+    refreshGadgets(this);
     this.events.onLifeStart();
     this.fx.push({ t: 'respawn', x: this.pip.x + (PIP_W >> 1), y: this.pip.y + PIP_H });
   }
@@ -234,11 +269,14 @@ export class World {
     this.hitstop = 0;
     this.respawnTimer = 0;
     this.pendingDeath = null;
+    this.collectedGadgets.clear();
+    this.resetVars(true);
     this.resetLevel();
     this.spawnPip();
     this.computeSupports();
     updatePlates(this, true);
     updateGates(this, true);
+    refreshGadgets(this);
     this.events.onLifeStart();
     this.fx.push({ t: 'restart' });
   }
@@ -254,6 +292,7 @@ export class World {
     this.deathsSinceRestart++;
     this.lastDeath = info.kind;
     this.pendingDeath = info;
+    this.events.onPlayerDies(info.kind);
     this.hitstop = HITSTOP;
     this.pip.vx = 0; this.pip.vy = 0;
     this.fx.push({ t: 'death', kind: info.kind, x: this.pip.x + (PIP_W >> 1), y: this.pip.y + (PIP_H >> 1) });
@@ -282,6 +321,56 @@ export class World {
   // ---------------------------------------------------------------------------
   // Win
   // ---------------------------------------------------------------------------
+
+  /** Win the level now (gadget, event). */
+  winNow(): void {
+    if (this.won) return;
+    this.won = true;
+    this.fx.push({ t: 'win', x: this.pip.x + (this.pip.w >> 1), y: this.pip.y + (this.pip.h >> 1) });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Variables
+  // ---------------------------------------------------------------------------
+
+  /** Reset variables: all of them (start, restart) or only those without `keep` (new life). */
+  resetVars(all: boolean): void {
+    const declared = new Set<string>();
+    for (const v of this.level.vars ?? []) {
+      declared.add(v.name);
+      if (all || !v.keep || !this.vars.has(v.name)) this.vars.set(v.name, v.value);
+    }
+    for (const k of [...this.vars.keys()]) if (!declared.has(k)) this.vars.delete(k);
+  }
+
+  varKeeps(name: string): boolean { return !!this.level.vars?.find((v) => v.name === name)?.keep; }
+
+  getVar(name: string): number { return this.vars.get(name) ?? 0; }
+
+  setVar(name: string, op: 'set' | 'add' | 'sub', value: number): void {
+    const cur = this.getVar(name);
+    const next = op === 'set' ? value : op === 'add' ? cur + value : cur - value;
+    if (next === cur && this.vars.has(name)) return;
+    this.vars.set(name, next);
+    if (next !== cur) this.fx.push({ t: 'var', name, value: next });
+  }
+
+  /** Kill Pip by an event or effect (the death point is Pip's bottom centre). */
+  killPipBy(kind: DeathType): void {
+    this.killPip({ kind, x: this.pip.x + (PIP_W >> 1), bottom: this.pip.y + PIP_H });
+  }
+
+  /** Drop a crate at a tile point (cleared on the next respawn like every crate). */
+  spawnCrateAt(x: number, y: number): void {
+    const px = Math.round(x * U), py = Math.round(y * U);
+    const c: Corpse = {
+      id: this.newCorpseId(), born: -1, stage: 0, shape: 'body', pin: null, floating: false, kind: 'crate', crateId: `spawned${this.spawnedCrates++}`,
+      x: px, y: py, w: U, h: U, vx: 0, vy: 0, px, py, shiver: 0, grounded: false,
+    };
+    const spot = this.isFree(c, c.id) ? null : this.findFreeSpot(c, c.id);
+    if (spot) { c.x = spot.x; c.y = spot.y; c.px = c.x; c.py = c.y; }
+    this.corpses.push(c);
+  }
 
   private checkWin(): void {
     for (const d of this.obj.doors) {

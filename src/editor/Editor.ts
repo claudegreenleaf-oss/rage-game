@@ -17,21 +17,25 @@ import { music } from '../audio/music';
 import type { Backdrop } from '../scenes/Backdrop';
 import type { GameData } from '../scenes/Game';
 import {
-  ACTION_LABEL, ACTION_TARGET, EditorDoc, blankLevel, defaultAction, flipClip, footprint, inRect, resizeAxes,
+  EditorDoc, MAX_H, MAX_W, MIN_H, MIN_W, blankLevel, flipClip, footprint, inRect, resizeAxes, shift as shiftObj,
   SHARE_WARN_CHARS, type Clip, type GridLayer, type Kind, type LayerId,
 } from './model';
+import {
+  actionSpot, actionsForCell, actionsForObj, actionsGlobal, condRefs, describeAction, makeAction, makeTrigger, nameOf,
+  triggerRefs, triggersFor, triggersGlobal, type Spec,
+} from './logic';
 import {
   BOTTOM_H, EditorUI, GAME_H, GAME_W, LEFT_W, RIGHT_W, TOP_H,
   type EdState, type PickRequest, type Selection, type UiHost,
 } from './panels';
-import { DECOR, OBJECTS, TERRAIN, TOOLS, ZONES, itemForGlyph, type Item, type ToolId } from './tools';
+import { DECOR, GADGETS, OBJECTS, TERRAIN, TOOLS, ZONES, itemForGlyph, type Item, type ToolId } from './tools';
 import { decorCanvas, ensureDecorTextures } from './decor';
 import { artCanvas } from './pixelate';
 import { setOverrides } from './sfxlab';
 import { encodeLevel, shareUrl } from './share';
 
 const T = TILE; // world pixels per tile
-const MIN_Z = 0.25, MAX_Z = 10;
+const MIN_Z = 0.1, MAX_Z = 10;
 /** Colour of the editor canvas around the room. */
 const WORKSPACE = 0x1b2127;
 const VIEW = { x: LEFT_W, y: TOP_H, w: GAME_W - LEFT_W - RIGHT_W, h: GAME_H - TOP_H - BOTTOM_H };
@@ -77,7 +81,7 @@ export class Editor extends Phaser.Scene implements UiHost {
     visible: { terrain: true, objects: true, bg: true, fg: true, images: true, zones: true },
     locked: { terrain: false, objects: false, bg: false, fg: false, images: false, zones: false },
     opacity: { terrain: 1, objects: 1, bg: 1, fg: 1, images: 1, zones: 1 },
-    grid: true, previewDark: false, selection: null, marquee: null, hasClip: false, rightTab: 'inspect', search: '',
+    grid: true, previewDark: false, selection: null, marquee: null, hasClip: false, rightTab: 'inspect', search: '', focusEvent: null,
   };
   shippedLevels = allLevels().map((l) => ({ id: l.id, name: l.name, act: l.act, kind: l.kind }));
 
@@ -109,6 +113,7 @@ export class Editor extends Phaser.Scene implements UiHost {
   private keyUp = (e: KeyboardEvent) => { if (e.code === 'Space') this.space = false; };
   private beforeUnload = () => { if (this.doc?.dirty) this.doc.saveDraft(); };
   private t = 0;
+  private lastBuild = 0;
 
   constructor() { super('Editor'); }
 
@@ -118,6 +123,18 @@ export class Editor extends Phaser.Scene implements UiHost {
   }
 
   create(): void {
+    // Phaser reuses this scene object every time the editor opens: reset everything from the last visit,
+    // or the editor keeps the previous (destroyed) preview and shows only the backdrop.
+    this.world = null;
+    this.view = null;
+    this.needsRebuild = true;
+    this.labels = [];
+    this.bgImg = null; this.fgImg = null; this.ghost = null; this.shadow = null;
+    this.artKeys = [];
+    this.hover = null; this.drag = null; this.pickReq = null; this.link = null;
+    this.fitted = false; this.builtSize = ''; this.builtDark = false;
+    this.cursors = null; this.space = false; this.t = 0; this.lastBuild = 0;
+    this.st.selection = null; this.st.marquee = null; this.st.focusEvent = null;
     this.doc = new EditorDoc(EditorDoc.loadDraft() ?? blankLevel());
     ensureDecorTextures(this.textures);
     this.overlay = this.add.graphics().setDepth(20);
@@ -138,7 +155,10 @@ export class Editor extends Phaser.Scene implements UiHost {
     // The title (and a finished playtest) close the iris wipe before switching here: open it, or the canvas stays black.
     this.openIris();
     this.events.on('sleep', () => { this.detach(); this.ui.setVisible(false); });
-    this.events.once('shutdown', () => { this.detach(); this.ui.destroy(); this.view?.destroy(); this.dropArt(); });
+    this.events.once('shutdown', () => {
+      this.detach(); this.ui.destroy(); this.view?.destroy(); this.dropArt();
+      this.view = null; this.world = null; this.needsRebuild = true;
+    });
     this.setMood();
     this.cameras.main.setViewport(VIEW.x, VIEW.y, VIEW.w, VIEW.h);
     this.ui.toast('Welcome to the lab. Everything here is yours to change.');
@@ -290,11 +310,20 @@ export class Editor extends Phaser.Scene implements UiHost {
     this.ui.refresh();
   }
 
-  newLevel(kind: Kind): void {
+  newLevel(kind: Kind, w?: number, h?: number): void {
     this.select(null);
-    this.doc.load(kind === 'zone' ? blankLevel(80, 30, 'zone') : blankLevel());
+    const W = Math.max(MIN_W, Math.min(MAX_W, w ?? (kind === 'zone' ? 80 : 24)));
+    const H = Math.max(MIN_H, Math.min(MAX_H, h ?? (kind === 'zone' ? 30 : 12)));
+    this.doc.load(blankLevel(W, H, kind));
     this.fitted = false;
-    this.ui.toast(kind === 'zone' ? 'New zone: a big room to explore. Wall-jumping is on.' : 'New chamber.');
+    this.ui.toast(`New ${W}×${H} ${kind === 'zone' ? 'zone' : 'room'}. Drag the green corner to resize any time.`);
+  }
+
+  startLink(): void {
+    this.setLayer('zones');
+    const it = ZONES.find((i) => i.mode === 'link');
+    if (it) this.setItem(it);
+    this.ui.toast('Link: click what starts it (a zone, pad, gadget, any object, or empty floor for timers and buttons).');
   }
 
   openLevel(which: string): void {
@@ -539,7 +568,10 @@ export class Editor extends Phaser.Scene implements UiHost {
   override update(_time: number, delta: number): void {
     const dt = Math.min(delta, 50) / 1000;
     this.t += dt;
-    if (this.needsRebuild || (!!this.doc.level.dark && this.st.previewDark) !== this.builtDark) this.rebuild();
+    // Rebuilding the preview re-bakes the whole room: on big rooms, do it at most ~8 times a second mid-stroke.
+    const big = this.doc.level.width * this.doc.level.height > 3000;
+    const stroking = !!this.drag && (this.drag.kind === 'paint' || this.drag.kind === 'move' || this.drag.kind === 'path' || this.drag.kind === 'resize');
+    if ((this.needsRebuild && (!big || !stroking || this.t - this.lastBuild > 0.12)) || (!!this.doc.level.dark && this.st.previewDark) !== this.builtDark) { this.lastBuild = this.t; this.rebuild(); }
     this.view?.render(1, dt);
     const st = this.st;
     if (this.view) this.view.root.setAlpha(st.visible.terrain ? st.opacity.terrain : 0.12);
@@ -636,7 +668,16 @@ export class Editor extends Phaser.Scene implements UiHost {
     if (this.pickReq) {
       const req = this.pickReq;
       if (req.type === 'point') { req.onPick(c); if (!req.repeat) this.pick(null); }
-      else this.drag = { kind: 'pickRect', start: c, cur: c, onPick: req.onPick };
+      else if (req.type === 'rect') this.drag = { kind: 'pickRect', start: c, cur: c, onPick: req.onPick };
+      else if (req.type === 'object') {
+        const o = this.pickableAt(c, req.accept);
+        if (o) { this.pick(null); req.onPick(o.id); audio.play('click'); }
+        else { const any = this.doc.objectAt(c.x, c.y); this.ui.toast(any ? `${nameOf(this.doc.level, any.id)} doesn’t fit here. The glowing ones do.` : 'Click one of the glowing objects (Esc cancels).'); }
+      } else {
+        const z = this.doc.zoneAt(c.x, c.y);
+        if (z) { this.pick(null); req.onPick(z.id); audio.play('click'); }
+        else this.ui.toast('Click inside a zone (Esc cancels). Draw zones with the Zones layer.');
+      }
       return;
     }
 
@@ -675,6 +716,20 @@ export class Editor extends Phaser.Scene implements UiHost {
     if (this.paintAt(c, false)) this.doc.changed();
   }
 
+  /** The topmost object at a cell that a pick accepts. */
+  private pickableAt(c: Pt, accept: (o: LevelObject) => boolean): LevelObject | undefined {
+    const objs = this.doc.level.objects;
+    for (let i = objs.length - 1; i >= 0; i--) { const o = objs[i]!; if (accept(o) && inRect(footprint(o), c.x, c.y)) return o; }
+    return undefined;
+  }
+
+  /** Path points of a lift or gadget, and where their handles sit (world px). */
+  private pathOf(o: LevelObject): { pts: Pt[]; handle: (p: Pt) => Pt } | null {
+    if (o.type === 'platform') return { pts: o.path, handle: (p) => ({ x: (p.x + o.w / 2) * T, y: (p.y + 0.2) * T }) };
+    if (o.type === 'gadget' && o.path?.length) return { pts: o.path, handle: (p) => ({ x: (p.x + o.w / 2) * T, y: (p.y + o.h / 2) * T }) };
+    return null;
+  }
+
   private startErase(c: Pt): void {
     const st = this.st;
     if (isGrid(st.layer) && (st.tool === 'rect' || st.tool === 'line')) { this.drag = { kind: 'shape', shape: st.tool, start: c, cur: c, erase: true }; return; }
@@ -695,8 +750,9 @@ export class Editor extends Phaser.Scene implements UiHost {
       if (h && Math.abs(wpx.x - h.x) <= grab && Math.abs(wpx.y - h.y) <= grab) { d.checkpoint(); this.drag = { kind: 'resize', sel, moved: false }; return; }
       if (sel.kind === 'object') {
         const o = d.byId(sel.id);
-        if (o?.type === 'platform') {
-          const i = o.path.findIndex((pt) => Math.hypot((pt.x + o.w / 2) * T - wpx.x, (pt.y + 0.2) * T - wpx.y) <= grab);
+        const path = o && this.pathOf(o);
+        if (o && path) {
+          const i = path.pts.findIndex((pt) => { const hp = path.handle(pt); return Math.hypot(hp.x - wpx.x, hp.y - wpx.y) <= grab; });
           if (i >= 0) { d.checkpoint(); this.drag = { kind: 'path', id: o.id, index: i, moved: false }; return; }
         }
       }
@@ -766,9 +822,11 @@ export class Editor extends Phaser.Scene implements UiHost {
       case 'resize': this.resizeSel(d, cc); break;
       case 'path': {
         const o = this.doc.byId(d.id);
-        if (o?.type !== 'platform') break;
-        const pt = o.path[d.index]!;
-        const nx = cc.x - Math.floor(o.w / 2), ny = cc.y;
+        const path = o && this.pathOf(o);
+        if (!o || !path) break;
+        const pt = path.pts[d.index]!;
+        const w = (o as { w: number }).w;
+        const nx = cc.x - Math.floor(w / 2), ny = o.type === 'gadget' ? cc.y - Math.floor(o.h / 2) : cc.y;
         if (pt.x !== nx || pt.y !== ny) {
           pt.x = nx; pt.y = ny;
           if (d.index === 0) { o.x = nx; o.y = ny; }
@@ -932,7 +990,15 @@ export class Editor extends Phaser.Scene implements UiHost {
         if (o.type === 'relic') return m.kind === o.kind;
         return true;
       });
-      if (it) { st.item.objects = it; st.tool = 'brush'; this.ui.refresh(); this.ui.toast(`Picked ${it.label}`); }
+      if (it && o?.type !== 'gadget') { st.item.objects = it; st.tool = 'brush'; this.ui.refresh(); this.ui.toast(`Picked ${it.label}`); return; }
+      if (o) {
+        // Anything else (gadgets especially): the eyedropper copies it exactly, so you can paint more of it.
+        const proto = JSON.parse(JSON.stringify(o)) as LevelObject;
+        const name = o.type === 'gadget' ? o.name || 'Gadget' : o.type;
+        const clone: Item = { id: `clone_${o.id}`, label: `${name} (copy)`, icon: GADGETS.find((g) => g.label === name)?.icon ?? '✚', hint: `Paints copies of ${o.id}.`, idPrefix: o.id.replace(/\d+$/, '') || 'o',
+          make: (id, x, y) => { const c2 = JSON.parse(JSON.stringify(proto)) as LevelObject; c2.id = id; return shiftObj(c2, x - Math.floor(proto.x), y - Math.floor(proto.y)); } };
+        st.item.objects = clone; st.tool = 'brush'; this.ui.refresh(); this.ui.toast(`Copied ${name}: click to place more`);
+      }
     }
   }
 
@@ -949,6 +1015,20 @@ export class Editor extends Phaser.Scene implements UiHost {
       obj = it.make('spawn', c.x, c.y);
     } else obj = it.make(doc.newId(it.idPrefix ?? 'o'), c.x, c.y);
     doc.level.objects.push(obj);
+    if (obj.type === 'gadget') {
+      // Keep fields inside the room, create the counters coins and keys use, and clear the clicked tile only
+      // (a fan or a field may overlap walls on purpose).
+      const g = obj;
+      const dy = Math.max(0, -g.y), dx = Math.max(0, -g.x);
+      if (dx || dy) { g.x += dx; g.y += dy; if (g.path) g.path = g.path.map((p) => ({ x: p.x + dx, y: p.y + dy })); }
+      if (g.effect.kind === 'collect' && g.effect.var) { const n = g.effect.var; doc.ensureVar(n, n[0]!.toUpperCase() + n.slice(1)); }
+      if (g.when?.type === 'var') doc.ensureVar(g.when.name, g.when.name[0]!.toUpperCase() + g.when.name.slice(1));
+      if (isSolidGlyph(doc.tile(c.x, c.y))) doc.setTile(c.x, c.y, '.');
+      doc.changed();
+      this.select({ kind: 'object', id: obj.id });
+      audio.play('pop');
+      return;
+    }
     // Objects sit in open air: clear the terrain under their footprint (a vine hangs from its own tile).
     if (obj.type === 'vine') {
       if (!isSolidGlyph(doc.tile(c.x, c.y)) && c.y > 0 && isSolidGlyph(doc.tile(c.x, c.y - 1))) obj.y = c.y - 1;
@@ -983,6 +1063,7 @@ export class Editor extends Phaser.Scene implements UiHost {
       if (!o) return;
       o.x += dx; o.y += dy;
       if (o.type === 'platform') for (const pt of o.path) { pt.x += dx; pt.y += dy; }
+      if (o.type === 'gadget' && o.path) for (const pt of o.path) { pt.x += dx; pt.y += dy; }
     } else if (s.kind === 'zone') {
       const z = doc.level.zones.find((x) => x.id === s.id);
       if (z) { z.x += dx; z.y += dy; }
@@ -1032,39 +1113,49 @@ export class Editor extends Phaser.Scene implements UiHost {
 
   // --- linking ---------------------------------------------------------------
 
+  /** Link tool: first click picks what starts it ("When…"), every later click adds what happens ("Then…"). */
   private linkClick(c: Pt): void {
     const doc = this.doc;
+    const l = doc.level;
     const o = doc.objectAt(c.x, c.y);
     const z = doc.zoneAt(c.x, c.y);
     const s = this.screenOf(c);
+    type MenuItem = { label: string; run: () => void };
     if (!this.link) {
-      const begin = (trigger: Trigger) => { this.link = { trigger, at: c }; this.ui.toast('Now click what should happen. Right-click or Esc to finish.'); };
-      const items: Array<{ label: string; run: () => void }> = [];
-      if (o?.type === 'sensor') items.push({ label: 'When the flashlight hits it', run: () => begin({ type: 'plateDown', plate: o.id }) }, { label: 'When the light leaves it', run: () => begin({ type: 'plateUp', plate: o.id }) });
-      else if (o?.type === 'plate') items.push({ label: 'When pressed', run: () => begin({ type: 'plateDown', plate: o.id }) }, { label: 'When released', run: () => begin({ type: 'plateUp', plate: o.id }) }, { label: 'When Pip stands on it', run: () => begin({ type: 'playerOn', target: o.id }) });
-      else if (o && o.type !== 'sign' && o.type !== 'label') items.push({ label: `When Pip stands on ${o.id}`, run: () => begin({ type: 'playerOn', target: o.id }) });
-      if (z) items.push({ label: `When Pip enters ${z.id}`, run: () => begin({ type: 'playerEnters', zone: z.id }) }, { label: `When a body enters ${z.id}`, run: () => begin({ type: 'corpseEnters', zone: z.id }) });
-      items.push({ label: 'After a timer (1 s)', run: () => begin({ type: 'timer', ticks: 60 }) }, { label: 'When deaths ≥ 1', run: () => begin({ type: 'deathCountAtLeast', n: 1 }) },
-        { label: 'When Pip stands on a raft', run: () => begin({ type: 'playerOn', target: '@raft' }) });
-      this.ui.showMenu(s.x, s.y, 'When…', items);
+      const begin = (trigger: Trigger) => {
+        this.link = { trigger, at: c };
+        this.ui.toast('Now click what should happen: an object, or tiles. Keep clicking to add more. Right-click or Esc when done.');
+      };
+      const items: MenuItem[] = [];
+      const named = (sp: Spec, what: string) => sp.label.replace('…', ` ${what}`).replace('a zone', what).replace('Pad / sensor', what);
+      if (o) for (const sp of triggersFor({ obj: o })) items.push({ label: named(sp, nameOf(l, o.id)), run: () => begin(makeTrigger(sp.type, { level: l, target: o.id })) });
+      if (z) for (const sp of triggersFor({ zone: z })) items.push({ label: named(sp, z.id), run: () => begin(makeTrigger(sp.type, { level: l, target: z.id })) });
+      if (!o && !z) items.push({ label: '⬚ Pip walks here (makes a zone)', run: () => {
+        const id = doc.newId('z');
+        doc.edit((lv) => { lv.zones.push({ id, x: c.x, y: Math.max(0, c.y - 1), w: 2, h: 2 }); });
+        begin(makeTrigger('playerEnters', { level: doc.level, target: id }));
+      } });
+      for (const sp of triggersGlobal()) items.push({ label: sp.label, run: () => begin(makeTrigger(sp.type, { level: l })) });
+      this.ui.showMenu(s.x, s.y, o ? `When… (${nameOf(l, o.id)})` : z ? `When… (${z.id})` : 'When…', items);
       return;
     }
     const src = this.link;
     const add = (a: Action) => {
       doc.edit(() => { doc.eventFor(src.trigger).actions.push(a); });
       audio.play('click');
+      this.ui.toast(`Added: ${describeAction(doc.level, a)}. Click more, or right-click to finish.`);
     };
-    const items: Array<{ label: string; run: () => void }> = [];
+    const items: MenuItem[] = [];
     if (o) {
-      for (const [type, tt] of Object.entries(ACTION_TARGET) as Array<[Action['type'], string]>) {
-        if (tt !== o.type) continue;
-        if (type === 'laser') for (const mode of ['off', 'on', 'blink'] as const) items.push({ label: `Laser ${mode}`, run: () => add({ type: 'laser', target: o.id, mode }) });
-        else items.push({ label: ACTION_LABEL[type], run: () => add(defaultAction(type, o.id, c)) });
+      for (const sp of actionsForObj(o)) {
+        if (sp.type === 'laser') for (const mode of ['off', 'on', 'blink'] as const) items.push({ label: `Laser ${mode}`, run: () => add({ type: 'laser', target: o.id, mode }) });
+        else if (sp.type === 'gadget') for (const [op, lab] of [['on', 'Turn on'], ['off', 'Turn off'], ['toggle', 'Toggle on/off'], ['start', 'Start moving'], ['stop', 'Stop moving'], ['reverse', 'Reverse']] as const) items.push({ label: lab, run: () => add({ type: 'gadget', target: o.id, op }) });
+        else items.push({ label: sp.label, run: () => add(makeAction(sp.type, { level: l, target: o.id, cell: c })) });
       }
     }
-    for (const type of ['dropTiles', 'removeTiles', 'addTiles', 'moveTiles'] as const) items.push({ label: `${ACTION_LABEL[type]} here`, run: () => add(defaultAction(type, undefined, c)) });
-    items.push({ label: 'Set current ← 1.2', run: () => add(defaultAction('setCurrent')) }, { label: 'Screen shake', run: () => add(defaultAction('shake')) }, { label: 'Play sound', run: () => add(defaultAction('sfx')) });
-    this.ui.showMenu(s.x, s.y, o ? `Then, to ${o.id}…` : 'Then…', items);
+    for (const sp of actionsForCell()) items.push({ label: `${sp.label} here`, run: () => add(makeAction(sp.type, { level: l, cell: c })) });
+    for (const sp of actionsGlobal()) items.push({ label: sp.label, run: () => add(makeAction(sp.type, { level: l, cell: c })) });
+    this.ui.showMenu(s.x, s.y, o ? `Then, to ${nameOf(l, o.id)}…` : 'Then…', items);
   }
 
   // --- keys --------------------------------------------------------------------
@@ -1132,7 +1223,8 @@ export class Editor extends Phaser.Scene implements UiHost {
     const o = d.objectAt(c.x, c.y);
     const t = TERRAIN.find((i) => i.glyph === d.tile(c.x, c.y))?.label ?? '';
     const bg = DECOR.find((i) => i.glyph === d.cell('bg', c.x, c.y));
-    this.ui.setStatus(`x ${c.x}, y ${c.y} · ${t}${o ? ` · ${o.id}` : ''}${bg ? ` · bg: ${bg.label}` : ''}`);
+    const z = d.zoneAt(c.x, c.y);
+    this.ui.setStatus(`x ${c.x}, y ${c.y} · ${t}${o ? ` · ${nameOf(d.level, o.id)}` : ''}${z ? ` · zone ${z.id}` : ''}${bg ? ` · bg: ${bg.label}` : ''}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -1226,44 +1318,81 @@ export class Editor extends Phaser.Scene implements UiHost {
       }
     }
 
-    // Links: pad wiring and events.
+    // Wiring: pads to shutters, lasers and gadgets; every event from its trigger to what it does.
     const strong = st.layer === 'zones' ? 0.9 : 0.35;
     const center = (id: string): Pt | null => {
       const o = l.objects.find((x) => x.id === id);
-      if (!o) return null;
-      const f = footprint(o);
-      return { x: (f.x + f.w / 2) * T, y: (f.y + f.h / 2) * T };
+      if (o) { const f = o.type === 'gadget' ? { x: o.x, y: o.y, w: o.w, h: o.h } : footprint(o); return { x: (f.x + f.w / 2) * T, y: (f.y + f.h / 2) * T }; }
+      const z = l.zones.find((q) => q.id === id);
+      return z ? { x: (z.x + z.w / 2) * T, y: (z.y + z.h / 2) * T } : null;
     };
     for (const o of l.objects) {
-      const plate = (o.type === 'gate' || o.type === 'laser') ? o.plate : undefined;
+      const plate = (o.type === 'gate' || o.type === 'laser') ? o.plate : o.type === 'gadget' ? o.link : undefined;
       if (plate) { const a = center(plate), b = center(o.id); if (a && b) this.dotted(g, a, b, 0x7fd38e, strong); }
+      if (o.type === 'gadget' && o.when) for (const r of condRefs(o.when)) { const a = center(r.id), b = center(o.id); if (a && b) this.dotted(g, a, b, 0x7fd38e, strong); }
     }
     const spawn = l.objects.find((o) => o.type === 'spawn');
-    for (const ev of l.events) {
-      const t = ev.trigger;
-      let src: Pt | null = null;
-      if (t.type === 'playerEnters' || t.type === 'corpseEnters') { const z = l.zones.find((q) => q.id === t.zone); if (z) src = { x: (z.x + z.w / 2) * T, y: (z.y + z.h / 2) * T }; }
-      else if (t.type === 'plateDown' || t.type === 'plateUp') src = center(t.plate);
-      else if (t.type === 'playerOn' && !t.target.startsWith('@')) src = center(t.target);
-      else if (spawn) src = { x: (spawn.x + 0.5) * T, y: (spawn.y + 0.5) * T };
-      if (!src) continue;
+    const focus = st.focusEvent;
+    l.events.forEach((ev, i) => {
+      const on = focus === i;
+      if (focus !== null && !on) return; // hovering an event: show only its wiring
+      const alpha = on ? 1 : ev.enabled === false ? 0.12 : strong;
+      const col = on ? 0xffa23a : 0xe0564f;
+      const tref = triggerRefs(ev.trigger)[0];
+      let src: Pt | null = tref ? center(tref.id) : null;
+      if (!src && !tref && spawn) src = { x: (spawn.x + 0.5) * T, y: (spawn.y + 0.5) * T };
+      if (!src) return;
+      if (on) g.lineStyle(2.5 / this.zoom, col, 1).strokeCircle(src.x, src.y, 7);
+      for (const c of ev.if ?? []) for (const r of condRefs(c)) { const p = center(r.id); if (p) this.dotted(g, p, src, 0x7fd38e, alpha); }
       for (const a of ev.actions) {
+        const spot = actionSpot(a);
         let dst: Pt | null = null;
-        if ('target' in a && a.target) dst = center(a.target);
-        else if ('rect' in a) dst = { x: (a.rect.x + a.rect.w / 2) * T, y: (a.rect.y + a.rect.h / 2) * T };
-        if ('rect' in a) this.dashRect(g, a.rect.x * T + 1.5, a.rect.y * T + 1.5, a.rect.w * T - 3, a.rect.h * T - 3, 0xe0564f, strong, lw * 1.5);
-        if (dst) this.dotted(g, src, dst, 0xe0564f, strong);
+        if (spot.id) dst = center(spot.id);
+        else if (spot.rect) {
+          const r = spot.rect;
+          dst = { x: (r.x + r.w / 2) * T, y: (r.y + r.h / 2) * T };
+          this.dashRect(g, r.x * T + 1.5, r.y * T + 1.5, r.w * T - 3, r.h * T - 3, col, alpha, lw * 1.5);
+        } else if (spot.at) {
+          dst = { x: (spot.at.x + 0.5) * T, y: (spot.at.y + 0.5) * T };
+          g.lineStyle(1.5 / this.zoom + 0.5, col, alpha).strokeCircle(dst.x, dst.y, 4).lineBetween(dst.x - 6, dst.y, dst.x + 6, dst.y).lineBetween(dst.x, dst.y - 6, dst.x, dst.y + 6);
+        }
+        if (dst) this.dotted(g, src, dst, col, alpha);
+        if (on && dst) g.lineStyle(2 / this.zoom, col, 1).strokeCircle(dst.x, dst.y, 6);
       }
+    });
+
+    // Paths (lifts and gadgets) with draggable handles; teleport destinations; invisible gadgets.
+    for (const o of l.objects) {
+      const path = this.pathOf(o);
+      const sel = st.selection?.kind === 'object' && st.selection.id === o.id;
+      if (path && path.pts.length) {
+        for (let i = 1; i < path.pts.length; i++) this.dotted(g, path.handle(path.pts[i - 1]!), path.handle(path.pts[i]!), 0x9aa4b4, sel ? 1 : 0.6);
+        if (o.type === 'gadget' && o.loop && path.pts.length > 2) this.dotted(g, path.handle(path.pts[path.pts.length - 1]!), path.handle(path.pts[0]!), 0x9aa4b4, sel ? 0.7 : 0.35);
+        for (const p of path.pts) { const hp = path.handle(p); g.fillStyle(sel ? 0xf2b544 : 0x5c6575, 0.95).fillCircle(hp.x, hp.y, (sel ? 3.5 : 2.5) * Math.max(1, 2 / this.zoom)); }
+      }
+      if (o.type !== 'gadget') continue;
+      if (o.effect.kind === 'teleport') {
+        const to = o.effect.to;
+        const a = center(o.id);
+        const b = typeof to === 'string' ? center(to) : { x: (to.x + 0.5) * T, y: (to.y + 0.5) * T };
+        if (a && b) { this.dotted(g, a, b, 0xff3fa0, sel ? 1 : 0.5); if (typeof to !== 'string') g.lineStyle(lw * 1.5, 0xff3fa0, sel ? 1 : 0.6).strokeCircle(b.x, b.y, 5); }
+      }
+      if (o.look?.shape === 'none' && st.visible.objects) this.dashRect(g, o.x * T, o.y * T, o.w * T, o.h * T, 0xffffff, 0.5, lw * 1.5);
     }
 
-    // Lift paths with draggable handles.
-    for (const o of l.objects) if (o.type === 'platform' && o.path.length) {
-      const sel = st.selection?.kind === 'object' && st.selection.id === o.id;
-      for (let i = 1; i < o.path.length; i++) {
-        const a = o.path[i - 1]!, b = o.path[i]!;
-        this.dotted(g, { x: (a.x + o.w / 2) * T, y: (a.y + 0.2) * T }, { x: (b.x + o.w / 2) * T, y: (b.y + 0.2) * T }, 0x9aa4b4, sel ? 1 : 0.6);
+    // Eyedropper in progress: make what can be picked glow.
+    const req = this.pickReq;
+    if (req?.type === 'object') {
+      for (const o of l.objects) if (req.accept(o)) {
+        const f = footprint(o);
+        const hov = this.hover && inRect(f, this.hover.x, this.hover.y);
+        g.lineStyle((hov ? 3 : 2) / this.zoom + 0.5, 0xffd35c, hov ? 1 : pulse).strokeRect(f.x * T - 1, f.y * T - 1, f.w * T + 2, f.h * T + 2);
       }
-      for (const p of o.path) g.fillStyle(sel ? 0xf2b544 : 0x5c6575, 0.95).fillCircle((p.x + o.w / 2) * T, (p.y + 0.2) * T, (sel ? 3.5 : 2.5) * Math.max(1, 2 / this.zoom));
+    } else if (req?.type === 'zone') {
+      for (const z of l.zones) {
+        const hov = this.hover && inRect(z, this.hover.x, this.hover.y);
+        g.lineStyle((hov ? 3 : 2) / this.zoom + 0.5, 0xffd35c, hov ? 1 : pulse).strokeRect(z.x * T, z.y * T, z.w * T, z.h * T);
+      }
     }
 
     // Selection & handles.
@@ -1322,8 +1451,8 @@ export class Editor extends Phaser.Scene implements UiHost {
     if (d && d.kind === 'float') { this.drawClipGhost(g, d.clip, d.cur); return; }
     if (d && d.kind === 'room') {
       const lv = this.doc.level;
-      const lim = lv.kind === 'zone' ? { w: 200, h: 60 } : { w: 32, h: 18 };
-      const w = Math.max(6, Math.min(lim.w, d.w)), h = Math.max(5, Math.min(lim.h, d.h));
+      void lv;
+      const w = Math.max(MIN_W, Math.min(MAX_W, d.w)), h = Math.max(MIN_H, Math.min(MAX_H, d.h));
       g.lineStyle(lw, 0x5bf0a0, 1).strokeRect(0, 0, w * T, h * T);
       g.fillStyle(0x5bf0a0, 0.06).fillRect(0, 0, w * T, h * T);
       this.hoverText.setText(`${w}×${h}`).setPosition((w * T) / 2, (h * T) / 2).setVisible(true);
@@ -1332,7 +1461,12 @@ export class Editor extends Phaser.Scene implements UiHost {
     const c = this.hover;
     if (!c) { this.decorGhost(null); return; }
     if (st.tool === 'stamp' && this.clip) { this.decorGhost(null); this.drawClipGhost(g, this.clip, c); return; }
-    if (this.pickReq) { g.lineStyle(lw, 0xe0564f, 0.9).strokeRect(c.x * T, c.y * T, T, T); return; }
+    if (this.pickReq) {
+      if (this.pickReq.type === 'object' || this.pickReq.type === 'zone') return; // the glow says it all
+      g.lineStyle(lw, 0xffa23a, 0.95).strokeRect(c.x * T, c.y * T, T, T);
+      this.hoverText.setText(`${c.x},${c.y}`).setPosition((c.x + 0.5) * T, (c.y - 0.4) * T).setVisible(true);
+      return;
+    }
     if (st.tool === 'select' || st.tool === 'pick') { this.decorGhost(null); g.lineStyle(lw, 0xffffff, 0.6).strokeRect(c.x * T, c.y * T, T, T); return; }
     const item = st.item[st.layer];
     if (isGrid(st.layer)) {

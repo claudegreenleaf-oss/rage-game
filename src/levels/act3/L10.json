@@ -75,5 +75,8 @@
   ],
   "zones": [],
   "events": [],
-  "par": 5
+  "par": 5,
+  "abilities": {
+    "wallJump": false
+  }
 }

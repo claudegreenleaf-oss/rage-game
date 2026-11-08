@@ -15,7 +15,7 @@ Built with Phaser 3, TypeScript and Vite. All art is generated in code (a pixel 
 | ↓ / S | Drop through a bone platform |
 | ↓ + walk away | Drag a body or crate you're touching (pull it off a wall) |
 | Jump into a vine | Grab it; ← → pump the swing, jump leaps off, ↓ slides down |
-| Into a wall while falling | Wall-slide; jump to wall-jump (exploration zones only) |
+| Into a wall while falling | Wall-slide; jump to wall-jump (everywhere except the 16 puzzle chambers, which were designed without it) |
 | R | Restart the room and clear all corpses |
 | M (or Tab) | Map: select any room you've visited to travel there |
 | Esc | Pause (music and effects volume are in here and in Settings) |
@@ -36,12 +36,13 @@ If you've died well past a level's par since your last restart, the HUD suggests
 
 Open it from the title screen. Everything is customizable:
 
-- **Build:** terrain, hazards and every object (vines, crates, crumbling floors, checkpoints, lab notes, lights, room exits included) with brush, rectangle, line, fill, eyedropper, stamp and select/copy/paste/flip tools; pan and zoom, a minimap, rooms up to 200×60.
+- **Build:** terrain, hazards and every object (vines, crates, crumbling floors, checkpoints, lab notes, lights, room exits included) with brush, rectangle, line, fill, eyedropper, stamp and select/copy/paste/flip tools; pan and zoom, a minimap; any room size from a 4×3 closet to a 256×96 hall. Right-click, the eraser or Delete removes anything under the cursor (the spawn too).
+- **New mechanics (gadgets):** parts you assemble into mechanics the game doesn't have. Any size, any look (shape, colour, symbol, glow, or one of your pixelated images), solid / one-way / passable, an effect (kill, bounce, launch, push, gravity, teleport, slow, carry, checkpoint, collect, win) on Pip and/or bodies, a path to move along, and on/off from a pad, a light sensor, a condition or events. Presets to start from: spring, launcher, updraft, wind, low gravity, goo, teleporter (with a one-click return pad), saw, death zone, coin, key and lock, moving block, belt, ledge, checkpoint orb, goal.
 - **Art:** paint background and foreground decor (32 lab tiles: panels, windows, monitors, tanks, pipes, vines, moss, ferns, bones…) on separate layers, or **import any image** and pixelate it to 2–32 colours (with dithering) as a parallax background or foreground.
 - **Sound:** a sound designer for every game sound (all ZzFX parameters, live preview, presets, randomize/mutate), stored per level.
 - **Music:** a piano-roll composer with six soft instruments (drums as a grid), BPM, 3/4 or 4/4, and templates (including a Satie-like waltz), or pick a built-in track.
-- **Rules:** corpse cap, aging on/off, gravity, jump height, run speed, bounce height, wall-jump.
-- **Logic:** the full troll engine: trigger zones linked to actions (dropping and moving tiles, pop-up spikes, crushers, droppers, gates, doors, currents, lasers, signs, shakes, sounds).
+- **Rules:** corpse cap, aging on/off, gravity, jump height, run speed, bounce height, wall-jump (on by default), air jumps (double/triple jump).
+- **Logic:** events read as sentences: *When* something happens (17 triggers: zones, pads, touching or collecting things, buttons, deaths, timers, repeating timers, a condition coming true, signals from other events), *only if* conditions hold (variables, pads, zones, collected items, gadget state, deaths, bodies), *do* actions (29: traps, tiles, gadgets, teleport/launch/kill Pip, abilities, physics, variables, signals, messages, signs, sounds, music, win), each with an optional delay. Variables can be shown on screen and kept across deaths. Every reference has an eyedropper (◉: click it, then click the thing on the map), and the **Link** tool wires things by clicking: what starts it, then what should happen. Hovering an event draws its wiring on the map; broken links and undefined variables are flagged.
 
 Press **P** to playtest from the cursor (Shift+P from the spawn); beat your level from the spawn to mark it **Verified**, then **Share** copies a link (`#lvl=…`, lz-string compressed) that opens straight into the level; pasting a code on the title screen does the same. Drafts autosave; Import/Export use JSON files; Ctrl+Z / Ctrl+Shift+Z undo and redo; Ctrl+K opens a command palette. Every shipped level is in the template gallery.
 

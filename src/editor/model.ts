@@ -1,16 +1,17 @@
 // The editor's document: a draft LevelData plus undo/redo, ids, persistence and editing helpers.
 // Everything here is plain data so the editor builds exactly the structures the sim and shipped levels use.
 import type {
-  Action, Exit, LevelData, LevelEvent, LevelObject, ObjType, PixelArt, TileGlyph, TileRect, Trigger, Zone,
+  Condition, Exit, LevelData, LevelEvent, LevelObject, ObjType, PixelArt, TileGlyph, TileRect, Trigger, Zone,
 } from '../sim/types';
 import { cloneLevel, normalizeLevel, validateLevel } from '../sim/level';
+import { actionRefs, condRefs, logicProblems, renameRefs, triggerRefs } from './logic';
 
-/** Size limits: puzzle chambers fit one screen; zones are big scrolling areas. */
-export const LIMITS = { chamber: { w: 32, h: 18 }, zone: { w: 200, h: 60 } } as const;
-export const MAX_W = LIMITS.chamber.w;
-export const MAX_H = LIMITS.chamber.h;
-export const MIN_W = 6;
-export const MIN_H = 5;
+/** Room size limits (any kind): from a tiny closet to a 4096×1536 px hall. */
+export const MAX_W = 256;
+export const MAX_H = 96;
+export const LIMITS = { chamber: { w: MAX_W, h: MAX_H }, zone: { w: MAX_W, h: MAX_H } } as const;
+export const MIN_W = 4;
+export const MIN_H = 3;
 const DRAFT_KEY = 'dietrying.editor.v1';
 /** Share codes get unwieldy past this many characters (images are the usual cause). */
 export const SHARE_WARN_CHARS = 12000;
@@ -65,6 +66,10 @@ export function footprint(o: LevelObject): TileRect {
     case 'platform': return { x: o.x, y: o.y, w: o.w, h: 1 };
     case 'vine': return { x: o.x, y: o.y, w: 1, h: Math.max(1, Math.ceil(o.len) + 1) };
     case 'label': return { x: Math.floor(o.x - 1), y: Math.floor(o.y - 0.5), w: 2, h: 1 };
+    case 'gadget': {
+      const x = Math.floor(o.x), y = Math.floor(o.y);
+      return { x, y, w: Math.max(1, Math.ceil(o.x + o.w - 1e-6) - x), h: Math.max(1, Math.ceil(o.y + o.h - 1e-6) - y) };
+    }
     default: return { x: o.x, y: o.y, w: 1, h: 1 };
   }
 }
@@ -76,6 +81,7 @@ export function resizeAxes(o: LevelObject): { w?: string; h?: string } {
     case 'plate': case 'platform': return { w: 'w' };
     case 'gate': return { h: 'h' };
     case 'vine': return { h: 'len' };
+    case 'gadget': return { w: 'w', h: 'h' };
     default: return {};
   }
 }
@@ -272,13 +278,20 @@ export class EditorDoc {
     this.edit((l) => {
       const oldW = l.width, oldH = l.height;
       const tiles: string[] = [];
+      // The room's right and bottom walls move with the edge: growing clears the old wall (it would be a box
+      // inside the room), shrinking builds a new one. Everything else stays where it is.
       for (let y = 0; y < h; y++) {
         let row = '';
         for (let x = 0; x < w; x++) {
           const edge = x === 0 || y === 0 || x === w - 1 || y === h - 1;
-          const inside = x < oldW - 1 && y < oldH - 1;
-          const old = l.tiles[y]?.[x];
-          row += old !== undefined && (inside || !edge) ? old : edge ? '#' : '.';
+          let g: string;
+          if (x < oldW && y < oldH) {
+            g = l.tiles[y]![x]!;
+            const oldWall = (x === oldW - 1 && w > oldW) || (y === oldH - 1 && h > oldH);
+            if (oldWall && g === '#' && !edge) g = '.';
+            if ((x === w - 1 && w < oldW) || (y === h - 1 && h < oldH)) g = '#';
+          } else g = edge ? '#' : '.';
+          row += g;
         }
         tiles.push(row);
       }
@@ -290,13 +303,11 @@ export class EditorDoc {
     });
   }
 
-  /** Switch between chamber and zone (clamping size to the new limits). */
+  /** Switch between chamber (puzzle room) and zone (exploration area). Only changes defaults like wall jump. */
   setKind(kind: Kind): void {
     this.edit((l) => {
       if (kind === 'zone') l.kind = 'zone'; else delete l.kind;
     });
-    const lim = LIMITS[kind];
-    if (this.level.width > lim.w || this.level.height > lim.h) this.resize(Math.min(this.level.width, lim.w), Math.min(this.level.height, lim.h));
   }
 
   // --- objects -------------------------------------------------------------
@@ -346,13 +357,41 @@ export class EditorDoc {
     for (const o of l.objects) {
       if (o.type === 'gate' && o.plate === id) delete o.plate;
       if (o.type === 'laser' && o.plate === id) { delete o.plate; if (o.mode === 'plate') o.mode = 'on'; }
+      if (o.type === 'gadget') {
+        if (o.link === id) { delete o.link; delete o.invert; }
+        if (o.when && condRefs(o.when).some((r) => r.id === id)) delete o.when;
+        if (o.effect.kind === 'teleport' && o.effect.to === id) o.effect.to = { x: Math.floor(o.x) + 4, y: Math.floor(o.y) };
+      }
     }
-    this.pruneEvents((t) => ('plate' in t && t.plate === id) || ('target' in t && t.target === id), (a) => 'target' in a && a.target === id);
+    this.pruneRefs(id);
   }
 
   removeZone(id: string): void {
     this.level.zones = this.level.zones.filter((z) => z.id !== id);
-    this.pruneEvents((t) => 'zone' in t && t.zone === id, () => false);
+    this.pruneRefs(id);
+  }
+
+  /** Give an object or zone a new id, updating every reference. Returns false if the id is taken. */
+  rename(from: string, to: string): boolean {
+    to = to.trim().replace(/\s+/g, '_');
+    if (!to || to === from) return false;
+    const l = this.level;
+    const taken = [...l.objects.map((o) => o.id), ...l.zones.map((z) => z.id), ...(l.exits ?? []).map((e) => e.id), ...(l.images ?? []).map((i) => i.id)];
+    if (taken.includes(to)) return false;
+    this.edit(() => {
+      const o = l.objects.find((x) => x.id === from);
+      if (o) o.id = to;
+      const z = l.zones.find((x) => x.id === from);
+      if (z) z.id = to;
+      renameRefs(l, from, to);
+    }, true);
+    return true;
+  }
+
+  /** Drop events whose trigger needs a deleted id, and actions/conditions that mention it. */
+  private pruneRefs(id: string): void {
+    const has = (refs: Array<{ id: string }>) => refs.some((r) => r.id === id);
+    this.pruneEvents((t) => has(triggerRefs(t)), (a) => has(actionRefs(a)), (c) => has(condRefs(c)));
   }
 
   removeExit(id: string): void {
@@ -363,12 +402,24 @@ export class EditorDoc {
     this.level.images = (this.level.images ?? []).filter((i) => i.id !== id);
   }
 
-  private pruneEvents(badTrigger: (t: Trigger) => boolean, badAction: (a: Action) => boolean): void {
+  private pruneEvents(badTrigger: (t: Trigger) => boolean, badAction: (a: LevelEvent['actions'][number]) => boolean, badCond: (c: Condition) => boolean): void {
     const l = this.level;
     l.events = l.events
       .filter((e) => !badTrigger(e.trigger))
-      .map((e) => ({ ...e, actions: e.actions.filter((a) => !badAction(a)) }))
+      .map((e) => {
+        const out: LevelEvent = { ...e, actions: e.actions.filter((a) => !badAction(a)) };
+        if (e.if) { const c = e.if.filter((x) => !badCond(x)); if (c.length) out.if = c; else delete out.if; }
+        return out;
+      })
       .filter((e) => e.actions.length > 0);
+  }
+
+  /** Make sure a variable exists (created at 0). */
+  ensureVar(name: string, show?: string): void {
+    if (!name) return;
+    const l = this.level;
+    l.vars ??= [];
+    if (!l.vars.some((v) => v.name === name)) l.vars.push(show ? { name, value: 0, show } : { name, value: 0 });
   }
 
   objectsOfType<T extends ObjType>(type: T): Array<Extract<LevelObject, { type: T }>> {
@@ -388,6 +439,11 @@ export class EditorDoc {
     const errs = [...v.errors];
     if (this.objectsOfType('spawn').length !== 1) errs.push('needs exactly one spawn');
     return errs;
+  }
+
+  /** Things that won't stop a playtest but probably aren't what you meant (broken links, undefined variables). */
+  warnings(): string[] {
+    return logicProblems(this.level);
   }
 
   // --- persistence ---------------------------------------------------------
@@ -421,9 +477,13 @@ export function fitRows(rows: string[] | undefined, w: number, h: number): strin
   return out;
 }
 
-function shift(o: LevelObject, dx: number, dy: number): LevelObject {
+export function shift(o: LevelObject, dx: number, dy: number): LevelObject {
   o.x += dx; o.y += dy;
   if (o.type === 'platform') o.path = o.path.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  if (o.type === 'gadget') {
+    if (o.path) o.path = o.path.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+    if (o.effect.kind === 'teleport' && typeof o.effect.to === 'object') o.effect.to = { x: o.effect.to.x + dx, y: o.effect.to.y + dy };
+  }
   return o;
 }
 
@@ -446,68 +506,4 @@ export function flipClip(c: Clip, axis: 'h' | 'v'): Clip {
       return shift(copy, dx, dy);
     }),
   };
-}
-
-// --- labels for the UI -----------------------------------------------------
-
-export const TRIGGER_LABEL: Record<Trigger['type'], string> = {
-  playerEnters: 'Pip enters zone',
-  corpseEnters: 'a body enters zone',
-  plateDown: 'plate pressed',
-  plateUp: 'plate released',
-  timer: 'after ticks (since spawn)',
-  deathCountAtLeast: 'deaths at least',
-  playerOn: 'Pip stands on',
-};
-
-export const ACTION_LABEL: Record<Action['type'], string> = {
-  dropTiles: 'Drop tiles',
-  removeTiles: 'Remove tiles',
-  addTiles: 'Add tiles',
-  moveTiles: 'Move tiles',
-  popSpike: 'Pop spike',
-  fireCrusher: 'Fire press',
-  fireDropper: 'Fire dropper',
-  toggleGate: 'Toggle shutter',
-  moveDoor: 'Move door',
-  setCurrent: 'Set current',
-  laser: 'Laser on/off/blink',
-  sign: 'Change sign',
-  shake: 'Screen shake',
-  sfx: 'Play sound',
-  startPlatform: 'Start lift',
-};
-
-/** Which target object type an action needs (undefined = no target). */
-export const ACTION_TARGET: Partial<Record<Action['type'], ObjType>> = {
-  popSpike: 'popup', fireCrusher: 'crusher', fireDropper: 'dropper', toggleGate: 'gate',
-  moveDoor: 'door', laser: 'laser', sign: 'sign', startPlatform: 'platform',
-};
-
-/** A sensible default action of a type aimed at a target/cell. */
-export function defaultAction(type: Action['type'], target?: string, cell?: { x: number; y: number }): Action {
-  const rect = { x: cell?.x ?? 1, y: cell?.y ?? 1, w: 1, h: 1 };
-  switch (type) {
-    case 'dropTiles': return { type, rect };
-    case 'removeTiles': return { type, rect };
-    case 'addTiles': return { type, rect, tile: '#' };
-    case 'moveTiles': return { type, rect, path: [{ x: 0, y: -1 }], speed: 3 };
-    case 'moveDoor': return { type, target: target ?? 'door', path: [{ x: (cell?.x ?? 1) + 3, y: cell?.y ?? 1 }], speed: 3 };
-    case 'setCurrent': return { type, dir: -1, speed: 1.2 };
-    case 'laser': return { type, target: target ?? '', mode: 'off' };
-    case 'sign': return { type, target: target ?? '', text: 'Surprise!' };
-    case 'shake': return { type, strength: 6 };
-    case 'sfx': return { type, name: 'pop' };
-    default: return { type, target: target ?? '' } as Action;
-  }
-}
-
-export function describeTrigger(t: Trigger): string {
-  switch (t.type) {
-    case 'playerEnters': case 'corpseEnters': return `${TRIGGER_LABEL[t.type]} ${t.zone}`;
-    case 'plateDown': case 'plateUp': return `${t.plate} ${t.type === 'plateDown' ? 'pressed' : 'released'}`;
-    case 'timer': return `${t.ticks} ticks after spawn`;
-    case 'deathCountAtLeast': return `deaths ≥ ${t.n}`;
-    case 'playerOn': return `Pip stands on ${t.target}`;
-  }
 }

@@ -61,6 +61,7 @@ add(withRules(fromAscii(`
 // ---------------------------------------------------------------------------
 // L15 · Pendulum — the vine hangs out of reach; a Rot bounce from the pit's edge gets you to it,
 // then a leap from the vine reaches the high exit. A plain bounce falls short.
+// The extra solid rows under the floor only move the floor up the screen, clear of the captions.
 // ---------------------------------------------------------------------------
 add(fromAscii(`
 ##########################
@@ -74,6 +75,9 @@ add(fromAscii(`
 #...........##############
 #.?.........##############
 #S...^^^^^^^##############
+##########################
+##########################
+##########################
 ##########################
 `, {
   id: 'L15', name: 'Pendulum', act: 4,
@@ -122,6 +126,7 @@ add(fromAscii(`
 
 for (const level of levels) {
   mkdirSync('src/levels/act4', { recursive: true });
+  level.abilities = { ...level.abilities, wallJump: false }; // designed and tested without wall jumps (on by default elsewhere)
   writeFileSync(`src/levels/act4/${level.id}.json`, JSON.stringify(level, null, 2) + '\n');
 }
 console.log(`wrote ${levels.length} act 4 levels`);

@@ -77,5 +77,8 @@
       "once": true
     }
   ],
-  "par": 3
+  "par": 3,
+  "abilities": {
+    "wallJump": false
+  }
 }

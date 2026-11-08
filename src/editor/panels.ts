@@ -1,12 +1,15 @@
 // DOM interface for the editor, laid over the canvas and scaled with it (design size 1280×720).
 // Top bar · tool rail · palette (left) · inspector / layers / events / level tabs (right) · status bar ·
 // minimap · studios (sound designer, music composer, image importer) · command palette · templates · tips.
-import type { Action, Exit, LevelEvent, LevelObject, PixelArt, Pt, SongData, TileRect, Trigger, Zone } from '../sim/types';
+import type { Action, Condition, Exit, GadgetEffect, GadgetObj, LevelEvent, LevelObject, LevelVar, PixelArt, Pt, SongData, TileRect, Trigger, Zone } from '../sim/types';
 import {
-  ACTION_LABEL, ACTION_TARGET, EditorDoc, LAYERS, MIN_H, MIN_W, SHARE_WARN_CHARS, TRIGGER_LABEL,
-  defaultAction, describeTrigger, kindOf, limitsOf, type Kind, type LayerId,
+  EditorDoc, LAYERS, MAX_H, MAX_W, MIN_H, MIN_W, SHARE_WARN_CHARS, kindOf, type Kind, type LayerId,
 } from './model';
-import { TOOLS, itemsFor, type Item, type ToolId } from './tools';
+import {
+  ACTIONS, CAUSES, CONDITIONS, OPS, TILES, TRIGGERS, actionSpec, condSpec, describeCond, describeEvent, eventMentions, fitsObj,
+  grouped, makeAction, makeCond, makeTrigger, nameOf, setField, triggerRefs, triggerSpec, triggersFor, type Field, type Spec,
+} from './logic';
+import { GADGETS, TOOLS, itemsFor, type Item, type ToolId } from './tools';
 import { decorUrl } from './decor';
 import { INSTRUMENTS, DRUM_NAMES, TEMPLATES, isBlack, noteAt, noteCount, noteName, normalizeSong, previewNote, previewSong, stopPreview, toggleNote } from './song';
 import { PARAMS, PRESETS, baseParams, compact, fill, mutate, playParams, randomize, soundList } from './sfxlab';
@@ -31,7 +34,10 @@ export type Selection =
 
 export type PickRequest =
   | { type: 'point'; prompt: string; onPick: (p: Pt) => void; repeat?: boolean }
-  | { type: 'rect'; prompt: string; onPick: (r: TileRect) => void };
+  | { type: 'rect'; prompt: string; onPick: (r: TileRect) => void }
+  /** Click an object on the map. Only objects `accept` likes can be picked (they glow). */
+  | { type: 'object'; prompt: string; accept: (o: LevelObject) => boolean; onPick: (id: string) => void }
+  | { type: 'zone'; prompt: string; onPick: (id: string) => void };
 
 export interface EdState {
   layer: LayerId;
@@ -49,6 +55,8 @@ export interface EdState {
   hasClip: boolean;
   rightTab: 'inspect' | 'layers' | 'events' | 'level';
   search: string;
+  /** Event under the mouse in the events list: its wiring is drawn bold on the map. */
+  focusEvent: number | null;
 }
 
 export interface UiHost {
@@ -64,7 +72,9 @@ export interface UiHost {
   playtest(fromCursor?: boolean): void;
   share(): void;
   exit(): void;
-  newLevel(kind: Kind): void;
+  newLevel(kind: Kind, w?: number, h?: number): void;
+  /** Start the Link tool. */
+  startLink(): void;
   openLevel(id: string): void;
   importFile(f: File): void;
   exportFile(): void;
@@ -225,6 +235,27 @@ const CSS = `
 /* Legible small text: beats index.html's global pixel-font rule (more specific + !important). */
 .ed-root .ed-status,.ed-root .ed-status *,.ed-root .ed-row,.ed-root .ed-row *,.ed-root .ed-search,.ed-root .ed-item,.ed-root .ed-item *,.ed-root .ed-hint,.ed-root .ed-hint *,.ed-root .ed-mini,.ed-root .ed-muted,.ed-root .ed-muted *,.ed-root .ed-menu button,.ed-root .ed-lrow,.ed-root .ed-lrow *,.ed-root .ed-sitem,.ed-root .ed-sitem *,.ed-root .ed-cmd button,.ed-root .ed-cmd button *,.ed-root .ed-tip,.ed-root .ed-tip *,.ed-root .ed-toast,.ed-root .ed-brush,.ed-root .ed-brush *,.ed-root .ed-h small,.ed-root .ed-gcard span,.ed-root .ed-empty,.ed-root .ed-empty *,.ed-root .ed-drop,.ed-root .ed-track,.ed-root .ed-track *,.ed-root .ed-group,.ed-root .ed-lchip .lk,.ed-root input,.ed-root select,.ed-root textarea,.ed-root output{font-family:${FONT_BODY} !important}
 .ed-root .ed-tip b,.ed-root .ed-hint b,.ed-root .ed-empty b{font-family:${FONT_UI} !important}
+.ed-eye{font:600 12px ${FONT_BODY};border:2px solid ${INK};width:24px;height:22px;padding:0;background:#ffe2b8;cursor:pointer;flex:0 0 24px;display:grid;place-items:center}
+.ed-eye:hover{background:${PEACH}}
+.ed-ev{border:2px solid ${INK};background:${PAPER};display:flex;flex-direction:column}
+.ed-ev.off{opacity:.55}
+.ed-ev.focus{box-shadow:0 0 0 2px ${WOOD}}
+.ed-evhead{display:flex;align-items:flex-start;gap:5px;padding:6px 6px;cursor:pointer;font:500 12px/1.3 ${FONT_BODY}}
+.ed-evhead:hover{background:#fff1df}
+.ed-evhead .tw{flex:0 0 10px;opacity:.6}
+.ed-evhead .sum{flex:1;min-width:0;overflow-wrap:anywhere}
+.ed-evhead .sum b{font-weight:700}
+.ed-evhead button{border:none;background:none;cursor:pointer;padding:0 2px;font:600 13px ${FONT_BODY};opacity:.7}
+.ed-evhead button:hover{opacity:1}
+.ed-evbody{border-top:2px solid ${INK};padding:7px;display:flex;flex-direction:column;gap:5px}
+.ed-sec{font:700 10.5px ${FONT_BODY};letter-spacing:.08em;text-transform:uppercase;opacity:.65;margin-top:3px;display:flex;align-items:center;gap:6px}
+.ed-sec .ed-mini{margin-left:auto;text-transform:none;letter-spacing:0}
+.ed-cond{border-left:4px solid ${MINT};padding-left:6px;display:flex;flex-direction:column;gap:4px}
+.ed-evbody .ed-row>label,.ed-cond .ed-row>label,.ed-act .ed-row>label{flex:0 0 66px}
+.ed-warn{background:#ffe2c2;border:2px solid ${INK};padding:6px 8px;font:500 11.5px/1.35 ${FONT_BODY};display:flex;flex-direction:column;gap:2px}
+.ed-warn b{font-weight:700}
+.ed-chips{display:flex;flex-wrap:wrap;gap:4px}
+.ed-root .ed-evhead,.ed-root .ed-evhead *,.ed-root .ed-sec,.ed-root .ed-warn,.ed-root .ed-warn *,.ed-root .ed-eye{font-family:${FONT_BODY} !important}
 .ed-imgprev canvas{image-rendering:pixelated;border:2px solid ${INK};background:repeating-conic-gradient(#ddd 0 25%,#fff 0 50%) 0 0/12px 12px}
 `;
 
@@ -250,6 +281,11 @@ export class EditorUI {
   private unsub: () => void;
   private statusText = '';
   private miniKey = '';
+  private lastTab = '';
+  /** Expanded event cards (by index). */
+  private openEvents = new Set<number>();
+  private scrollToEvent: number | null = null;
+  private eventFilter = '';
   /** Called by studios when they close (so the editor can resume previews etc.). */
   onModalClose: (() => void) | null = null;
 
@@ -450,7 +486,10 @@ export class EditorUI {
         const c = artCanvas(im);
         c.style.cssText = 'width:44px;height:30px;image-rendering:pixelated;object-fit:contain;background:#14121a;border:2px solid #1c1a24';
         return h('div', { class: `ed-lrow ${st.selection?.kind === 'image' && st.selection.id === im.id ? 'on' : ''}`, onclick: () => { this.host.select({ kind: 'image', id: im.id }); this.host.centerOn(im.x + im.w / 32, im.y + im.h / 32); } },
-          c, h('span', { class: 'nm' }, `${im.id} · ${im.layer}`, h('br'), h('small', {}, `${im.w}×${im.h}px, ${im.palette.length} colours`)));
+          c, h('span', { class: 'nm' }, `${im.id} · ${im.layer}`, h('br'), h('small', {}, (() => {
+            const users = doc.level.objects.filter((o) => o.type === 'gadget' && o.look?.art === im.id).map((o) => o.id);
+            return users.length ? `skin of ${users.join(', ')}` : `${im.w}×${im.h}px, ${im.palette.length} colours`;
+          })())));
       }));
   }
 
@@ -462,6 +501,9 @@ export class EditorUI {
     const { st } = this.host;
     const tabs = h('div', { class: 'ed-tabs' }, ...([['inspect', 'Inspect'], ['layers', 'Layers'], ['events', 'Events'], ['level', 'Level']] as const).map(([id, label]) =>
       h('div', { class: `ed-tab ${st.rightTab === id ? 'on' : ''}`, onclick: () => { st.rightTab = id; this.renderRight(); } }, label)));
+    const prev = this.right.querySelector('.ed-scroll') as HTMLElement | null;
+    const keepScroll = prev && this.lastTab === st.rightTab ? prev.scrollTop : 0;
+    this.lastTab = st.rightTab;
     const body = h('div', { class: 'ed-scroll' });
     switch (st.rightTab) {
       case 'inspect': body.append(...this.inspectSelection()); break;
@@ -470,11 +512,17 @@ export class EditorUI {
       case 'level': body.append(...this.levelSettings()); break;
     }
     this.right.replaceChildren(tabs, body);
+    body.scrollTop = keepScroll;
+    if (this.scrollToEvent !== null) {
+      const el = body.querySelector(`[data-ev="${this.scrollToEvent}"]`) as HTMLElement | null;
+      this.scrollToEvent = null;
+      if (el) body.scrollTop = el.offsetTop - 8;
+    }
   }
 
   // --- field helpers ---------------------------------------------------------
 
-  row(label: string, ...ctl: Node[]): HTMLElement { return h('div', { class: 'ed-row' }, h('label', {}, label), ...ctl); }
+  row(label: string, ...ctl: Array<Node | null>): HTMLElement { return h('div', { class: 'ed-row' }, h('label', {}, label), ...ctl); }
   num(v: number, on: (v: number) => void, min = -999, max = 999, step = 1): HTMLInputElement {
     return h('input', { type: 'number', value: v, min, max, step, onchange: (e) => {
       const n = Number((e.target as HTMLInputElement).value);
@@ -528,8 +576,15 @@ export class EditorUI {
       h('span', {}, 'Pick the Select tool (V) and click something on the map to edit it here. Drag a selected object to move it; drag its corner to resize.'))];
   }
 
-  private header(title: string, id: string, onDelete: () => void): HTMLElement {
-    return h('h3', { class: 'ed-h' }, title, h('small', {}, id), h('button', { class: 'ed-x', title: 'Delete (Del)', onclick: onDelete }, '✕'));
+  private header(title: string, id: string, onDelete: () => void, renamable = false): HTMLElement {
+    const idEl = renamable
+      ? h('input', { class: 'ed-in', style: 'flex:0 1 92px;min-width:40px;font-size:11px;padding:1px 4px', value: id, title: 'Rename (links follow)', onchange: (e) => {
+        const v = (e.target as HTMLInputElement).value;
+        if (!this.host.doc.rename(id, v)) { (e.target as HTMLInputElement).value = id; if (v.trim() && v.trim() !== id) this.toast('That name is taken.'); }
+        else this.host.select(this.host.st.selection?.kind === 'zone' ? { kind: 'zone', id: v.trim().replace(/\s+/g, '_') } : { kind: 'object', id: v.trim().replace(/\s+/g, '_') });
+      } })
+      : h('small', {}, id);
+    return h('h3', { class: 'ed-h' }, title, idEl, h('button', { class: 'ed-x', title: 'Delete (Del)', onclick: onDelete }, '✕'));
   }
 
   private pos(o: LevelObject): HTMLElement {
@@ -550,6 +605,14 @@ export class EditorUI {
     const del = () => { this.host.doc.edit(() => this.host.doc.removeObject(id)); this.host.select(null); };
     const out: HTMLElement[] = [];
     const typed = <T extends LevelObject['type']>(t: T, fn: (x: Extract<LevelObject, { type: T }>) => void) => (x: LevelObject) => { if (x.type === t) fn(x as Extract<LevelObject, { type: T }>); };
+    const header = this.header.bind(this);
+    this.header = (title: string, hid: string, onDelete: () => void) => header(title, hid, onDelete, o.type !== 'spawn');
+    try { this.inspectObjectBody(o, id, del, typed, out); } finally { this.header = header; }
+    out.push(...this.linksFor(o.id, o));
+    return out;
+  }
+
+  private inspectObjectBody(o: LevelObject, id: string, del: () => void, typed: <T extends LevelObject['type']>(t: T, fn: (x: Extract<LevelObject, { type: T }>) => void) => (x: LevelObject) => void, out: HTMLElement[]): void {
     switch (o.type) {
       case 'spawn': out.push(this.header('Spawn', id, del), this.pos(o), h('div', { class: 'ed-muted' }, 'Where Pip pops out. Every level needs exactly one.')); break;
       case 'door':
@@ -655,8 +718,142 @@ export class EditorUI {
           this.row('Text', this.text(o.text, (v) => this.set(id, typed('label', (x) => { x.text = v; })))),
           this.row('Size', ...this.slider(o.size ?? 1, 0.5, 4, 0.5, (v) => this.set(id, typed('label', (x) => { x.size = v; })), (x) => `×${x}`)));
         break;
+      case 'gadget': out.push(...this.inspectGadget(o, del)); break;
     }
-    out.push(...this.linksFor(o.id));
+  }
+
+  // --- gadgets -------------------------------------------------------------------
+
+  private inspectGadget(o: GadgetObj, del: () => void): HTMLElement[] {
+    const { doc } = this.host;
+    const l = doc.level;
+    const id = o.id;
+    const setG = (fn: (g: GadgetObj) => void) => doc.edit((lv) => { const g = lv.objects.find((x) => x.id === id); if (g?.type === 'gadget') fn(g); });
+    const setFx = (fn: (e: GadgetEffect & Record<string, unknown>) => void) => setG((g) => fn(g.effect as GadgetEffect & Record<string, unknown>));
+    const eye = (title: string, run: () => void) => h('button', { class: 'ed-eye', title, onclick: run }, '◉');
+    const out: HTMLElement[] = [this.header(o.name || 'Gadget', id, del)];
+    out.push(this.row('Name', this.text(o.name ?? '', (v) => setG((g) => { if (v.trim()) g.name = v.trim(); else delete g.name; }), 'e.g. Spring')));
+    out.push(this.row('Start from', this.select('', [['', 'a preset…'], ...GADGETS.map((it) => [it.id, it.label] as [string, string])], (v) => {
+      const it = GADGETS.find((x) => x.id === v);
+      if (!it?.make) return;
+      const fresh = it.make(id, Math.floor(o.x), Math.floor(o.y)) as GadgetObj;
+      setG((g) => { for (const k of Object.keys(g)) if (k !== 'type' && k !== 'id') delete (g as unknown as Record<string, unknown>)[k]; Object.assign(g, { ...fresh, id }); });
+      if (fresh.effect.kind === 'collect' && fresh.effect.var) doc.edit(() => doc.ensureVar(fresh.effect.kind === 'collect' ? fresh.effect.var! : '', 'Coins'));
+    })));
+    out.push(this.row('Position', this.num(o.x, (v) => setG((g) => { const dx = v - g.x; g.x = v; if (g.path) g.path = g.path.map((p) => ({ x: p.x + dx, y: p.y })); }), -4, l.width, 0.25),
+      this.num(o.y, (v) => setG((g) => { const dy = v - g.y; g.y = v; if (g.path) g.path = g.path.map((p) => ({ x: p.x, y: p.y + dy })); }), -4, l.height, 0.25)));
+    out.push(this.row('Size', this.num(o.w, (v) => setG((g) => { g.w = v; }), 0.25, 64, 0.25), this.num(o.h, (v) => setG((g) => { g.h = v; }), 0.25, 64, 0.25), h('span', { style: 'opacity:.6;font-size:11px' }, 'tiles')));
+
+    // What it does
+    const fx = o.effect as GadgetEffect & Record<string, unknown>;
+    out.push(h('div', { class: 'ed-sec' }, 'What it does'));
+    const EFFECTS: Array<[GadgetEffect['kind'], string, string]> = [
+      ['none', 'Nothing (just a part)', 'A block, platform or decoration. Wire it up with events.'],
+      ['kill', 'Kills Pip', 'Leaves a body like any death.'],
+      ['bounce', 'Bounces', 'Launches up to a height.'],
+      ['launch', 'Launches', 'Sets speed in a direction.'],
+      ['force', 'Pushes (fan / wind)', 'Constant push while inside. Gravity is 60 t/s² down.'],
+      ['gravity', 'Changes gravity', 'Multiplies gravity while inside: 0 floats, 2 is heavy.'],
+      ['teleport', 'Teleports', 'Moves Pip or a body to a spot or another gadget.'],
+      ['slow', 'Slows (goo)', 'Damps speed while inside.'],
+      ['conveyor', 'Carries (belt)', 'Moves what stands on it. Make it solid.'],
+      ['checkpoint', 'Checkpoint', 'Becomes the respawn point.'],
+      ['collect', 'Collectible', 'Picked up by Pip; adds to a variable.'],
+      ['win', 'Wins the level', 'Like reaching the door.'],
+    ];
+    out.push(this.row('Effect', this.select(fx.kind, EFFECTS.map(([k, lab]) => [k, lab] as [string, string]), (v) => setG((g) => { g.effect = defaultEffect(v as GadgetEffect['kind'], g); }))));
+    const ehint = EFFECTS.find((e) => e[0] === fx.kind)?.[2];
+    if (ehint) out.push(h('div', { class: 'ed-muted' }, ehint));
+    const numFx = (label: string, key: string, min: number, max: number, step: number, unit = '') => this.row(label, this.num(Number(fx[key] ?? 0), (v) => setFx((e) => { e[key] = v; }), min, max, step), unit ? h('span', { style: 'opacity:.6;font-size:11px' }, unit) : null);
+    switch (fx.kind) {
+      case 'kill': out.push(this.row('As if by', this.select(String(fx.cause ?? 'spike'), CAUSES, (v) => setFx((e) => { e.cause = v; })))); break;
+      case 'bounce': out.push(numFx('Height', 'height', 0.5, 40, 0.5, 'tiles')); break;
+      case 'launch': out.push(numFx('Sideways', 'vx', -40, 40, 1, 't/s'), numFx('Down (− up)', 'vy', -40, 40, 1, 't/s')); break;
+      case 'force': out.push(numFx('Push x', 'ax', -300, 300, 5, 't/s²'), numFx('Push y (− up)', 'ay', -300, 300, 5, 't/s²')); break;
+      case 'gravity': out.push(this.row('Gravity ×', ...this.slider(Number(fx.scale ?? 1), 0, 3, 0.05, (v) => setFx((e) => { e.scale = v; })))); break;
+      case 'slow': out.push(this.row('Keep speed', ...this.slider(Number(fx.factor ?? 0.4), 0, 1, 0.05, (v) => setFx((e) => { e.factor = v; }), (x) => `${Math.round(x * 100)}%`))); break;
+      case 'conveyor': out.push(numFx('Speed (− left)', 'speed', -16, 16, 0.5, 't/s')); break;
+      case 'teleport': {
+        const to = fx.to as Pt | string;
+        out.push(this.row('Sends to', h('span', { style: 'flex:1' }, typeof to === 'string' ? nameOf(l, to) : `tile ${to.x}, ${to.y}`),
+          eye('Click a spot', () => this.host.pick({ type: 'point', prompt: 'Click where it sends things', onPick: (p) => setFx((e) => { e.to = p; }) })),
+          h('button', { class: 'ed-mini', title: 'Pick another gadget (e.g. a second teleporter)', onclick: () => this.host.pick({ type: 'object', prompt: 'Click the gadget it sends things to', accept: (x) => x.type === 'gadget' && x.id !== id, onPick: (gid) => setFx((e) => { e.to = gid; }) }) }, '◉ gadget')));
+        out.push(h('div', { class: 'ed-row' }, h('label', {}, ''), this.mini('Make a return pad', () => {
+          const p = typeof to === 'string' ? undefined : to;
+          const nid = doc.newId('tele');
+          doc.edit((lv) => {
+            const back: GadgetObj = { type: 'gadget', id: nid, name: 'Teleporter', x: p?.x ?? o.x + 6, y: p?.y ?? o.y, w: o.w, h: o.h, look: { ...(o.look ?? {}) }, effect: { kind: 'teleport', to: id } };
+            lv.objects.push(back);
+            const me = lv.objects.find((x) => x.id === id);
+            if (me?.type === 'gadget' && me.effect.kind === 'teleport') me.effect.to = nid;
+          });
+          this.toast('Linked pair: each sends to the other.');
+        }, 'Place a second teleporter at the destination; they send to each other')));
+        break;
+      }
+      case 'collect': {
+        const listId = 'ed-vars-dl2';
+        out.push(this.row('Adds to', h('input', { type: 'text', value: String(fx.var ?? ''), list: listId, placeholder: 'variable (optional)', onchange: (e) => {
+          const n = (e.target as HTMLInputElement).value.trim().replace(/\s+/g, '_');
+          doc.edit((lv) => { const g = lv.objects.find((x) => x.id === id); if (g?.type === 'gadget' && g.effect.kind === 'collect') { if (n) g.effect.var = n; else delete g.effect.var; } if (n) doc.ensureVar(n, n[0]!.toUpperCase() + n.slice(1)); });
+        } }), h('datalist', { id: listId }, ...(l.vars ?? []).map((v) => h('option', { value: v.name })))), numFx('Amount', 'amount', -99, 99, 1));
+        break;
+      }
+      default: break;
+    }
+    const aff = o.affects ?? {};
+    if (fx.kind !== 'none' && fx.kind !== 'win' && fx.kind !== 'checkpoint' && fx.kind !== 'collect')
+      out.push(this.row('Affects', h('label', { style: 'display:flex;gap:3px;align-items:center;flex:0 0 auto;opacity:1' }, this.check(aff.player !== false, (v) => setG((g) => { g.affects = { ...(g.affects ?? {}), player: v }; })), 'Pip'),
+        h('label', { style: 'display:flex;gap:3px;align-items:center;flex:0 0 auto;opacity:1' }, this.check(aff.bodies !== false, (v) => setG((g) => { g.affects = { ...(g.affects ?? {}), bodies: v }; })), 'bodies & crates')));
+    out.push(this.row('Solid', this.select(o.solid ?? 'none', [['none', 'no (pass through)'], ['solid', 'yes (blocks, carries)'], ['oneWay', 'from above only']], (v) => setG((g) => { if (v === 'none') delete g.solid; else g.solid = v as 'solid'; }))));
+    out.push(this.row('One use', this.check(!!o.once, (v) => setG((g) => { if (v) g.once = true; else delete g.once; })), h('span', { class: 'ed-muted' }, 'gone after the first touch')));
+
+    // Look
+    const look = o.look ?? {};
+    const setLook = (fn: (lk: NonNullable<GadgetObj['look']>) => void) => setG((g) => { g.look ??= {}; fn(g.look); });
+    out.push(h('div', { class: 'ed-sec' }, 'Look'));
+    out.push(this.row('Shape', this.select(look.shape ?? 'box', [['box', 'block'], ['round', 'round'], ['spikes', 'spikes'], ['field', 'soft field'], ['none', 'invisible']], (v) => setLook((lk) => { lk.shape = v as 'box'; }))));
+    out.push(this.row('Colour', h('input', { type: 'color', value: look.color ?? '#7fd38e', onchange: (e) => setLook((lk) => { lk.color = (e.target as HTMLInputElement).value; }) }),
+      look.color ? this.mini('auto', () => setLook((lk) => { delete lk.color; }), 'Use the colour for its effect') : h('span', { class: 'ed-muted' }, 'auto'),
+      h('span', { style: 'flex:1' }), h('label', { style: 'display:flex;gap:3px;align-items:center;flex:0 0 auto;opacity:1' }, this.check(!!look.glow, (v) => setLook((lk) => { if (v) lk.glow = true; else delete lk.glow; })), 'glow')));
+    out.push(this.row('Symbol', h('input', { type: 'text', value: look.glyph ?? '', maxlength: 3, placeholder: 'auto', style: 'flex:0 0 60px', onchange: (e) => setLook((lk) => { const v = (e.target as HTMLInputElement).value.trim(); if (v) lk.glyph = v; else delete lk.glyph; }) }),
+      h('span', { class: 'ed-muted' }, 'a character drawn on it')));
+    const imgs = l.images ?? [];
+    out.push(this.row('Image', this.select(look.art ?? '', [['', '— none —'], ...imgs.map((im) => [im.id, `${im.id} (${im.w}×${im.h})`] as [string, string])], (v) => setLook((lk) => { if (v) lk.art = v; else delete lk.art; })),
+      this.mini('Import…', () => this.openImageStudio(), 'Pixelate a picture, then pick it here')));
+
+    // On / off
+    const mode = o.link ? 'pad' : o.when ? 'cond' : o.on === false ? 'off' : 'on';
+    out.push(h('div', { class: 'ed-sec' }, 'On / off'));
+    out.push(this.row('It is', this.select(mode, [['on', 'on (events can switch it)'], ['off', 'off at first (events can switch it)'], ['pad', 'on while a pad / sensor is pressed'], ['cond', 'on while a condition holds']], (v) => setG((g) => {
+      delete g.link; delete g.invert; delete g.when; delete g.on;
+      if (v === 'off') g.on = false;
+      if (v === 'pad') { const p = l.objects.find((x) => x.type === 'plate' || x.type === 'sensor'); g.link = p?.id ?? ''; }
+      if (v === 'cond') g.when = makeCond(l.vars?.length ? 'var' : 'pressed', { level: l });
+    }))));
+    if (mode === 'pad') {
+      out.push(this.field({ key: 'link', label: 'Pad', kind: { k: 'plate' } }, o.link, (v) => setG((g) => { g.link = String(v ?? ''); })),
+        this.row('Reverse', this.check(!!o.invert, (v) => setG((g) => { if (v) g.invert = true; else delete g.invert; })), h('span', { class: 'ed-muted' }, 'on while NOT pressed')));
+    }
+    if (mode === 'cond' && o.when) {
+      out.push(this.condEditor(o.when, (nc) => setG((g) => { g.when = nc; }), (fn) => setG((g) => { if (g.when) fn(g.when as unknown as Record<string, unknown>); })));
+    }
+    out.push(h('div', { class: 'ed-muted' }, 'Off gadgets are faded, not solid, and do nothing. Events can switch them with “Switch a gadget”.'));
+
+    // Movement
+    out.push(h('div', { class: 'ed-sec' }, 'Movement',
+      this.mini(o.path?.length ? '◉ redraw path' : '◉ draw a path', () => {
+        const acc: Pt[] = [{ x: o.x, y: o.y }];
+        setG((g) => { g.path = [...acc]; g.speed ??= 3; });
+        this.host.pick({ type: 'point', repeat: true, prompt: 'Click where it should travel, point by point (it starts where it is). Done when finished.', onPick: (c) => { acc.push({ x: c.x, y: c.y }); setG((g) => { g.path = [...acc]; }); } });
+      }, 'Click points on the map')));
+    if (o.path?.length) {
+      out.push(this.row('Speed', ...this.slider(o.speed ?? 3, 0.25, 16, 0.25, (v) => setG((g) => { g.speed = v; }), (x) => `${x} t/s`)),
+        this.row('Moves', this.select(o.move ?? 'always', [['always', 'all the time'], ['whenOn', 'only while on'], ['trigger', 'when an event starts it']], (v) => setG((g) => { if (v === 'always') delete g.move; else g.move = v as 'whenOn'; }))),
+        this.row('Loop', this.check(!!o.loop, (v) => setG((g) => { if (v) g.loop = true; else delete g.loop; })), h('span', { class: 'ed-muted' }, 'off = back and forth')),
+        h('div', { class: 'ed-muted' }, `${o.path.length} points. Drag the round handles on the map to move them.`),
+        h('div', { class: 'ed-row' }, this.mini('Remove path', () => setG((g) => { delete g.path; delete g.speed; delete g.move; delete g.loop; }))));
+    } else out.push(h('div', { class: 'ed-muted' }, 'Stays put. Draw a path to make it move (saws, elevators, patrolling hazards).'));
     return out;
   }
 
@@ -664,11 +861,10 @@ export class EditorUI {
     const { doc } = this.host;
     const setZ = (fn: (zz: Zone) => void) => doc.edit((l) => { const zz = l.zones.find((q) => q.id === z.id); if (zz) fn(zz); });
     return [
-      this.header('Trigger zone', z.id, () => { doc.edit(() => doc.removeZone(z.id)); this.host.select(null); }),
+      this.header('Trigger zone', z.id, () => { doc.edit(() => doc.removeZone(z.id)); this.host.select(null); }, true),
       this.row('Position', this.num(z.x, (v) => setZ((q) => { q.x = v; }), 0, doc.level.width - 1), this.num(z.y, (v) => setZ((q) => { q.y = v; }), 0, doc.level.height - 1)),
-      this.row('Size', this.num(z.w, (v) => setZ((q) => { q.w = v; }), 1, 200), this.num(z.h, (v) => setZ((q) => { q.h = v; }), 1, 60)),
-      h('div', { class: 'ed-muted' }, 'Link it: Zones layer → Link tool → click this zone, then click what should happen.'),
-      ...this.linksFor(z.id),
+      this.row('Size', this.num(z.w, (v) => setZ((q) => { q.w = v; }), 1, MAX_W), this.num(z.h, (v) => setZ((q) => { q.h = v; }), 1, MAX_H)),
+      ...this.linksFor(z.id, undefined, z),
     ];
   }
 
@@ -704,11 +900,25 @@ export class EditorUI {
     ];
   }
 
-  /** Events this id takes part in. */
-  private linksFor(id: string): HTMLElement[] {
-    const evs = this.host.doc.level.events.filter((e) => JSON.stringify(e).includes(`"${id}"`));
-    if (!evs.length) return [];
-    return [h('div', { class: 'ed-h', style: 'font-size:12.5px;margin-top:4px' }, 'Linked events'), ...evs.map((e) => h('div', { class: 'ed-muted' }, `When ${describeTrigger(e.trigger)} → ${e.actions.map((a) => ACTION_LABEL[a.type]).join(', ')}`))];
+  /** Events this object or zone takes part in, plus quick ways to wire it. */
+  private linksFor(id: string, o?: LevelObject, z?: Zone): HTMLElement[] {
+    const { doc } = this.host;
+    const l = doc.level;
+    const out: HTMLElement[] = [h('div', { class: 'ed-sec' }, 'Logic')];
+    l.events.forEach((e, i) => {
+      if (!eventMentions(e, id)) return;
+      out.push(h('div', { class: 'ed-lrow', title: 'Open in Events', onclick: () => this.openEvent(i), onmouseenter: () => { this.host.st.focusEvent = i; }, onmouseleave: () => { this.host.st.focusEvent = null; } },
+        h('span', { class: 'nm', style: 'font-size:11.5px' }, describeEvent(l, e)), h('span', {}, '›')));
+    });
+    const starts = triggersFor(o ? { obj: o } : z ? { zone: z } : {});
+    if (starts.length) {
+      out.push(h('div', { class: 'ed-row' }, h('label', {}, 'When this…'), this.select('', [['', 'add an event…'], ...starts.map((sp) => [sp.type, sp.label] as [string, string])], (v) => {
+        if (!v) return;
+        this.addEvent(makeTrigger(v, { level: l, target: id }));
+      })));
+    }
+    out.push(h('div', { class: 'ed-muted' }, 'Or use the Link tool: click this, then click what it should affect.'));
+    return out;
   }
 
   // --- layers -------------------------------------------------------------------
@@ -734,54 +944,125 @@ export class EditorUI {
   private levelSettings(): HTMLElement[] {
     const { doc } = this.host;
     const l = doc.level;
-    const lim = limitsOf(l);
     const r = l.rules ?? {};
     const setR = (fn: (rr: NonNullable<typeof l.rules>) => void) => doc.edit((x) => { x.rules ??= {}; fn(x.rules); if (!Object.keys(x.rules).length) delete x.rules; });
     const errs = doc.validate();
+    const warns = doc.warnings();
     const music = l.audio?.theme ? 'custom' : String(l.audio?.music ?? (l.act ?? 1));
+    const size = (w: number, hh: number, label: string) => h('button', { class: `ed-mini ${l.width === w && l.height === hh ? 'on' : ''}`, title: `${w}×${hh}`, onclick: () => { doc.resize(w, hh); this.host.fit(); } }, label);
     return [
       h('h3', { class: 'ed-h' }, 'Level', h('small', {}, `${l.width}×${l.height} · ${kindOf(l)}`)),
+      errs.length ? h('div', { class: 'ed-warn' }, h('b', {}, '✕ Can’t play yet'), ...errs.map((e) => h('span', {}, e))) : h('div', { class: 'ed-muted' }, '✓ Playable.'),
+      warns.length ? h('div', { class: 'ed-warn' }, h('b', {}, `⚠ ${warns.length} to check`), ...warns.slice(0, 6).map((w) => h('span', {}, w))) : h('span'),
       this.row('Name', this.text(l.name, (v) => doc.edit((x) => { x.name = v.trim() || 'Untitled'; }, true))),
       this.row('Id', this.text(l.id, (v) => doc.edit((x) => { x.id = v.trim() || 'custom'; }, true))),
-      this.row('Kind', this.select(kindOf(l), [['chamber', 'Chamber (one screen puzzle)'], ['zone', 'Zone (big, scrolling)']], (v) => this.host.doc.setKind(v as Kind))),
-      this.row('Width', ...this.slider(l.width, MIN_W, lim.w, 1, (v) => doc.resize(v, l.height), (x) => String(x))),
-      this.row('Height', ...this.slider(l.height, MIN_H, lim.h, 1, (v) => doc.resize(l.width, v), (x) => String(x))),
+      this.row('Kind', this.select(kindOf(l), [['chamber', 'Chamber (puzzle room)'], ['zone', 'Zone (exploration)']], (v) => this.host.doc.setKind(v as Kind))),
+      h('div', { class: 'ed-muted' }, 'Kind is a label for the map and the banner. Any size and any mechanic work in both.'),
+      h('div', { class: 'ed-sec' }, 'Size'),
+      this.row('Width', this.num(l.width, (v) => doc.resize(v, l.height), MIN_W, MAX_W), h('span', { style: 'opacity:.6' }, '×'), this.num(l.height, (v) => doc.resize(l.width, v), MIN_H, MAX_H), h('span', { style: 'opacity:.6;font-size:11px' }, 'tiles')),
+      h('div', { class: 'ed-chips' }, size(8, 5, 'Closet'), size(24, 12, 'One screen'), size(48, 20, 'Wide'), size(80, 30, 'Big'), size(160, 50, 'Huge'), size(MAX_W, MAX_H, 'Max')),
+      h('div', { class: 'ed-muted' }, `From ${MIN_W}×${MIN_H} to ${MAX_W}×${MAX_H}. Or drag the green corner of the room on the map. Shrinking crops from the right and bottom.`),
+      h('div', { class: 'ed-sec' }, 'Look & sound'),
       this.row('Dark room', this.check(!!l.dark, (v) => doc.edit((x) => { if (v) x.dark = true; else delete x.dark; })), h('span', { class: 'ed-muted' }, 'only the flashlight and lights see')),
       this.row('Look', this.select(String(l.biome ?? l.act ?? 1), [['1', 'Sterile wing'], ['2', 'Flooded bio-lab'], ['3', 'Deep containment']], (v) => doc.edit((x) => { x.biome = Number(v); x.act = Number(v); x.palette = Number(v); }))),
       this.row('Music', this.select(music, [['0', 'Title theme'], ['1', 'Act 1'], ['2', 'Act 2'], ['3', 'Act 3'], ['4', 'Credits'], ['custom', 'Your theme (composer)']], (v) => {
         if (v === 'custom') { this.openMusicStudio(); return; }
         doc.edit((x) => { x.audio ??= {}; x.audio.music = Number(v); delete x.audio.theme; });
       })),
-      h('div', { class: 'ed-h', style: 'font-size:13px;margin-top:4px' }, 'Rules'),
-      this.row('Wall jump', this.select(l.abilities?.wallJump === undefined ? 'auto' : l.abilities.wallJump ? 'on' : 'off', [['auto', 'auto (zones only)'], ['on', 'on'], ['off', 'off']], (v) => doc.edit((x) => {
-        if (v === 'auto') { if (x.abilities) delete x.abilities.wallJump; } else { x.abilities ??= {}; x.abilities.wallJump = v === 'on'; }
+      h('div', { class: 'ed-sec' }, 'Pip'),
+      this.row('Wall jump', this.select(l.abilities?.wallJump === false ? 'off' : 'on', [['on', 'on'], ['off', 'off']], (v) => doc.edit((x) => {
+        if (v === 'on') { if (x.abilities) delete x.abilities.wallJump; } else { x.abilities ??= {}; x.abilities.wallJump = false; }
+        if (x.abilities && !Object.keys(x.abilities).length) delete x.abilities;
       }))),
-      this.row('Body cap', ...this.slider(r.maxCorpses ?? 3, 1, 6, 1, (v) => setR((rr) => { if (v === 3) delete rr.maxCorpses; else rr.maxCorpses = v; }), (x) => String(x))),
-      this.row('Bodies age', this.check(r.aging !== false, (v) => setR((rr) => { if (v) delete rr.aging; else rr.aging = false; }))),
+      this.row('Air jumps', ...this.slider(l.abilities?.airJumps ?? 0, 0, 3, 1, (v) => doc.edit((x) => {
+        x.abilities ??= {};
+        if (v > 0) x.abilities.airJumps = v; else delete x.abilities.airJumps;
+        if (!Object.keys(x.abilities).length) delete x.abilities;
+      }), (x) => (x ? `${x}` : 'none'))),
       this.row('Gravity', ...this.slider(r.gravity ?? 1, 0.5, 2, 0.05, (v) => setR((rr) => { if (v === 1) delete rr.gravity; else rr.gravity = v; }), (x) => `×${x.toFixed(2)}`)),
       this.row('Jump', ...this.slider(r.jump ?? 1, 0.5, 2, 0.05, (v) => setR((rr) => { if (v === 1) delete rr.jump; else rr.jump = v; }), (x) => `×${x.toFixed(2)}`)),
       this.row('Run speed', ...this.slider(r.speed ?? 1, 0.5, 2, 0.05, (v) => setR((rr) => { if (v === 1) delete rr.speed; else rr.speed = v; }), (x) => `×${x.toFixed(2)}`)),
+      h('div', { class: 'ed-sec' }, 'Bodies'),
+      this.row('Body cap', ...this.slider(r.maxCorpses ?? 3, 1, 6, 1, (v) => setR((rr) => { if (v === 3) delete rr.maxCorpses; else rr.maxCorpses = v; }), (x) => String(x))),
+      this.row('Bodies age', this.check(r.aging !== false, (v) => setR((rr) => { if (v) delete rr.aging; else rr.aging = false; }))),
       this.row('Rot bounce', ...this.slider(r.bounce ?? 1, 0.5, 2, 0.05, (v) => setR((rr) => { if (v === 1) delete rr.bounce; else rr.bounce = v; }), (x) => `×${x.toFixed(2)}`)),
       this.row('Par deaths', this.num(l.par ?? 0, (v) => doc.edit((x) => { if (v > 0) x.par = v; else delete x.par; }, true), 0, 99)),
-      h('div', { class: 'ed-h', style: 'font-size:13px;margin-top:4px' }, 'Water current'),
+      h('div', { class: 'ed-sec' }, 'Water current'),
       this.row('Direction', this.select(String(l.current?.dir ?? 1), [['1', '→ right'], ['-1', '← left']], (v) => doc.edit((x) => { x.current = { dir: Number(v) as -1 | 1, speed: x.current?.speed ?? 2 }; }))),
       this.row('Speed t/s', ...this.slider(l.current?.speed ?? 0, 0, 8, 0.1, (v) => doc.edit((x) => { x.current = { dir: x.current?.dir ?? 1, speed: v }; }), (x) => x.toFixed(1))),
-      h('div', { class: 'ed-muted' }, errs.length ? `⚠ ${errs.join(' · ')}` : '✓ Playable. Par is the death count the R-hint compares against.'),
-      h('div', { class: 'ed-muted' }, 'Keys: V B U L G I S E tools · 1–6 layers · [ ] brush · P playtest · Space-drag pan · wheel zoom · 0 fit · Ctrl+K commands'),
+      ...this.varsPanel(),
+      h('div', { class: 'ed-muted', style: 'margin-top:6px' }, 'Keys: V B U L G I S E tools · 1–6 layers · [ ] brush · P playtest · Space-drag pan · wheel zoom · 0 fit · Del deletes what’s under the cursor · Ctrl+K commands'),
+    ];
+  }
+
+  /** Variables: numbers events and gadgets can count with. */
+  private varsPanel(): HTMLElement[] {
+    const { doc } = this.host;
+    const l = doc.level;
+    const vars = l.vars ?? [];
+    const setV = (i: number, fn: (v: LevelVar) => void) => doc.edit((x) => { const v = x.vars?.[i]; if (v) fn(v); });
+    const renameVar = (from: string, to: string) => doc.edit((x) => {
+      const fix = (o: unknown): void => {
+        if (!o || typeof o !== 'object') return;
+        const r = o as Record<string, unknown>;
+        if ((r.type === 'var' || r.type === 'setVar') && r.name === from) r.name = to;
+        if (r.cond) fix(r.cond);
+      };
+      for (const ev of x.events) { fix(ev.trigger); ev.if?.forEach(fix); ev.actions.forEach(fix); }
+      for (const o of x.objects) if (o.type === 'gadget') { if (o.when) fix(o.when); if (o.effect.kind === 'collect' && o.effect.var === from) o.effect.var = to; }
+      const v = x.vars?.find((q) => q.name === from);
+      if (v) v.name = to;
+    });
+    return [
+      h('div', { class: 'ed-sec' }, 'Variables', this.mini('+ variable', () => doc.edit((x) => { x.vars ??= []; let n = 1; while (x.vars.some((v) => v.name === `var${n}`)) n++; x.vars.push({ name: `var${n}`, value: 0 }); }))),
+      vars.length ? h('span') : h('div', { class: 'ed-muted' }, 'Numbers your events can set, add to and test: keys, coins, switches, laps, a score. Coins and keys make their own.'),
+      ...vars.map((v, i) => h('div', { class: 'ed-card', style: 'padding:5px;gap:4px' },
+        h('div', { class: 'ed-row' }, h('input', { type: 'text', value: v.name, title: 'Name (links follow a rename)', onchange: (e) => {
+          const n = (e.target as HTMLInputElement).value.trim().replace(/\s+/g, '_');
+          if (n && n !== v.name && !vars.some((q) => q.name === n)) renameVar(v.name, n); else (e.target as HTMLInputElement).value = v.name;
+        } }), h('span', { style: 'opacity:.6;font-size:11px' }, 'starts at'), h('input', { type: 'number', class: 'ed-in', style: 'flex:0 0 54px', value: v.value, onchange: (e) => setV(i, (q) => { q.value = Number((e.target as HTMLInputElement).value) || 0; }) }),
+          h('button', { class: 'ed-x', title: 'Delete variable', onclick: () => doc.edit((x) => { x.vars?.splice(i, 1); if (!x.vars?.length) delete x.vars; }) }, '✕')),
+        h('div', { class: 'ed-row' }, h('label', { style: 'display:flex;gap:3px;align-items:center;flex:0 0 auto;opacity:1' }, this.check(!!v.keep, (b) => setV(i, (q) => { if (b) q.keep = true; else delete q.keep; })), 'keep after death'),
+          h('input', { type: 'text', value: v.show ?? '', placeholder: 'on-screen label', title: 'Show it on the HUD with this label (blank = hidden)', onchange: (e) => setV(i, (q) => { const t = (e.target as HTMLInputElement).value.trim(); if (t) q.show = t; else delete q.show; }) })))),
     ];
   }
 
   // --- events -------------------------------------------------------------------
 
-  private eventsList(): HTMLElement[] {
+  /** Open one event in the Events tab (and scroll to it). */
+  openEvent(i: number): void {
+    this.host.st.rightTab = 'events';
+    this.openEvents.add(i);
+    this.scrollToEvent = i;
+    this.renderRight();
+  }
+
+  /** Add an event with a trigger and open it. */
+  addEvent(trigger: Trigger, actions: Action[] = []): void {
     const { doc } = this.host;
-    const evs = doc.level.events;
-    const out: HTMLElement[] = [h('h3', { class: 'ed-h' }, 'Events', h('small', {}, `${evs.length}`),
-      h('span', { style: 'margin-left:auto' }),
-      this.mini('Link tool', () => { this.host.setLayer('zones'); const it = itemsFor('zones').find((i) => i.mode === 'link'); if (it) this.host.setItem(it); }),
-      this.mini('+ event', () => doc.edit((l) => { l.events.push({ trigger: { type: 'timer', ticks: 60 }, actions: [{ type: 'shake', strength: 6 }], once: true }); })))];
-    if (!evs.length) out.push(h('div', { class: 'ed-empty' }, h('span', { class: 'big' }, '⤳'), h('b', {}, 'No events yet'), h('span', {}, 'Events make traps spring. Use the Link tool: click a zone, pad or object, then click what should happen.')));
-    evs.forEach((ev, i) => out.push(this.eventCard(ev, i)));
+    doc.edit((l) => { l.events.push({ trigger, actions, once: true }); });
+    this.openEvent(doc.level.events.length - 1);
+  }
+
+  private eventsList(): HTMLElement[] {
+    const { doc, st } = this.host;
+    const l = doc.level;
+    const evs = l.events;
+    const q = this.eventFilter.trim().toLowerCase();
+    const out: HTMLElement[] = [h('h3', { class: 'ed-h' }, 'Events', h('small', {}, `${evs.length}`), h('span', { style: 'margin-left:auto' }),
+      this.mini('⤳ Link tool', () => this.host.startLink(), 'Click what starts it on the map, then click what should happen'),
+      this.mini('+ New', () => this.addEvent(makeTrigger('start', { level: l })), 'A blank event (When the level starts → …)'))];
+    out.push(h('div', { class: 'ed-muted' }, 'Each event: ', h('b', {}, 'When'), ' something happens, ', h('b', {}, 'only if'), ' conditions hold, ', h('b', {}, 'do'), ' actions. Use ◉ to pick things on the map.'));
+    const warns = doc.warnings();
+    if (warns.length) out.push(h('div', { class: 'ed-warn' }, h('b', {}, `⚠ ${warns.length} thing${warns.length > 1 ? 's' : ''} to check`), ...warns.slice(0, 8).map((w) => h('span', {}, w)), warns.length > 8 ? h('span', {}, `…and ${warns.length - 8} more`) : null));
+    if (evs.length > 4) out.push(h('input', { class: 'ed-search', style: 'margin:0;width:100%', placeholder: 'Filter events…', value: this.eventFilter, oninput: (e) => { this.eventFilter = (e.target as HTMLInputElement).value; this.renderRight(); const inp = this.right.querySelector('.ed-scroll .ed-search') as HTMLInputElement | null; inp?.focus(); inp?.setSelectionRange(inp.value.length, inp.value.length); } }));
+    if (!evs.length) out.push(h('div', { class: 'ed-empty' }, h('span', { class: 'big' }, '⤳'), h('b', {}, 'No events yet'),
+      h('span', {}, 'Events are your level’s logic: traps, doors that open, counters, teleports, messages, new rules. Fastest way: press the Link tool, click a zone, pad or object on the map, then click what should happen.')));
+    evs.forEach((ev, i) => {
+      if (q && !describeEvent(l, ev).toLowerCase().includes(q) && !(ev.name ?? '').toLowerCase().includes(q)) return;
+      out.push(this.eventCard(ev, i));
+    });
+    if (st.focusEvent !== null && st.focusEvent >= evs.length) st.focusEvent = null;
     return out;
   }
 
@@ -790,77 +1071,217 @@ export class EditorUI {
   }
 
   private eventCard(ev: LevelEvent, i: number): HTMLElement {
-    const { doc } = this.host;
-    const t = ev.trigger;
-    const zones: Array<[string, string]> = doc.level.zones.map((z) => [z.id, z.id]);
-    const objs: Array<[string, string]> = [...doc.level.objects.filter((o) => o.type !== 'spawn' && o.type !== 'label').map((o) => [o.id, `${o.id} (${o.type})`] as [string, string]), ['@raft', 'any raft'], ['@corpse', 'any body']];
-    const plates = [...doc.objectsOfType('plate').map((p) => [p.id, p.id] as [string, string]), ...doc.objectsOfType('sensor').map((p) => [p.id, `${p.id} (light)`] as [string, string])];
-    const trigTypes = Object.entries(TRIGGER_LABEL) as Array<[Trigger['type'], string]>;
-    const changeType = (type: Trigger['type']) => this.editEvent(i, (e) => {
-      switch (type) {
-        case 'playerEnters': case 'corpseEnters': e.trigger = { type, zone: zones[0]?.[0] ?? '' }; break;
-        case 'plateDown': case 'plateUp': e.trigger = { type, plate: plates[0]?.[0] ?? '' }; break;
-        case 'timer': e.trigger = { type, ticks: 60 }; break;
-        case 'deathCountAtLeast': e.trigger = { type, n: 1 }; break;
-        case 'playerOn': e.trigger = { type, target: objs[0]?.[0] ?? '@corpse' }; break;
-      }
-    });
-    let param: HTMLElement;
-    switch (t.type) {
-      case 'playerEnters': case 'corpseEnters': param = this.select(t.zone, zones.length ? zones : [['', '(draw a zone)']], (v) => this.editEvent(i, (e) => { if ('zone' in e.trigger) e.trigger.zone = v; })); break;
-      case 'plateDown': case 'plateUp': param = this.select(t.plate, plates.length ? plates : [['', '(add a pad)']], (v) => this.editEvent(i, (e) => { if ('plate' in e.trigger) e.trigger.plate = v; })); break;
-      case 'timer': param = this.num(t.ticks, (v) => this.editEvent(i, (e) => { if (e.trigger.type === 'timer') e.trigger.ticks = v; }), 0, 36000, 10); break;
-      case 'deathCountAtLeast': param = this.num(t.n, (v) => this.editEvent(i, (e) => { if (e.trigger.type === 'deathCountAtLeast') e.trigger.n = v; }), 0, 999); break;
-      case 'playerOn': param = this.select(t.target, objs, (v) => this.editEvent(i, (e) => { if (e.trigger.type === 'playerOn') e.trigger.target = v; })); break;
-    }
-    const actTypes = Object.entries(ACTION_LABEL) as Array<[Action['type'], string]>;
-    return h('div', { class: 'ed-card' },
-      h('div', { class: 'ed-row' }, h('b', {}, 'When'), this.select(t.type, trigTypes, (v) => changeType(v as Trigger['type'])),
-        h('button', { class: 'ed-x', title: 'Delete event', onclick: () => doc.edit((l) => { l.events.splice(i, 1); }) }, '✕')),
-      h('div', { class: 'ed-row' }, h('label', {}, ''), param),
-      h('div', { class: 'ed-row' }, h('label', {}, 'Once per life'), this.check(!!ev.once, (v) => this.editEvent(i, (e) => { e.once = v; }))),
-      ...ev.actions.map((a, j) => this.actionRow(a, i, j)),
-      h('div', { class: 'ed-row' }, h('label', {}, ''), this.select('', [['', '+ add action…'], ...actTypes], (v) => {
-        if (!v) return;
-        const type = v as Action['type'];
-        const tt = ACTION_TARGET[type];
-        const target = tt ? doc.objectsOfType(tt)[0]?.id : undefined;
-        this.editEvent(i, (e) => { e.actions.push(defaultAction(type, target)); });
-      })));
+    const { doc, st } = this.host;
+    const l = doc.level;
+    const open = this.openEvents.has(i);
+    const off = ev.enabled === false;
+    const toggle = () => { if (open) this.openEvents.delete(i); else this.openEvents.add(i); this.renderRight(); };
+    const removeAt = () => {
+      doc.edit((lv) => { lv.events.splice(i, 1); });
+      this.openEvents = new Set([...this.openEvents].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k)));
+      st.focusEvent = null;
+    };
+    const summary = h('span', { class: 'sum' }, ev.name ? h('b', {}, `${ev.name}: `) : null, describeEvent(l, ev));
+    const head = h('div', { class: 'ed-evhead', onclick: toggle },
+      h('span', { class: 'tw' }, open ? '▾' : '▸'), summary,
+      h('button', { title: off ? 'Turn on' : 'Turn off (keep it, but it won’t fire)', onclick: (e) => { e.stopPropagation(); this.editEvent(i, (x) => { if (x.enabled === false) delete x.enabled; else x.enabled = false; }); } }, off ? '◌' : '⏻'),
+      h('button', { title: 'Duplicate', onclick: (e) => { e.stopPropagation(); doc.edit((lv) => { lv.events.splice(i + 1, 0, JSON.parse(JSON.stringify(ev)) as LevelEvent); }); this.openEvents = new Set([...this.openEvents].map((k) => (k > i ? k + 1 : k))); this.openEvent(i + 1); } }, '⧉'),
+      h('button', { title: 'Delete event', style: 'color:#c93f4f', onclick: (e) => { e.stopPropagation(); removeAt(); } }, '✕'));
+    const card = h('div', { class: `ed-ev ${off ? 'off' : ''} ${st.focusEvent === i ? 'focus' : ''}`, 'data-ev': i,
+      onmouseenter: () => { st.focusEvent = i; }, onmouseleave: () => { if (st.focusEvent === i) st.focusEvent = null; } }, head);
+    if (!open) return card;
+
+    const t = ev.trigger as unknown as Record<string, unknown>;
+    const body = h('div', { class: 'ed-evbody' });
+    body.append(this.row('Name', this.text(ev.name ?? '', (v) => this.editEvent(i, (x) => { if (v.trim()) x.name = v.trim(); else delete x.name; }), 'optional, e.g. “Vault opens”')));
+    // WHEN
+    body.append(h('div', { class: 'ed-sec' }, 'When'));
+    body.append(this.row('', this.specSelect(TRIGGERS, ev.trigger.type, (type) => this.editEvent(i, (x) => {
+      const keep = triggerRefs(x.trigger)[0]?.id;
+      x.trigger = makeTrigger(type, { level: l, target: keep });
+    }))));
+    const tspec = triggerSpec(ev.trigger.type);
+    if (tspec.hint) body.append(h('div', { class: 'ed-muted' }, tspec.hint));
+    body.append(...this.fieldsFor(tspec, t, (fn) => this.editEvent(i, (x) => fn(x.trigger as unknown as Record<string, unknown>))));
+    // ONLY IF
+    const conds = ev.if ?? [];
+    body.append(h('div', { class: 'ed-sec' }, 'Only if', this.mini('+ condition', () => this.editEvent(i, (x) => { (x.if ??= []).push(makeCond(l.vars?.length ? 'var' : 'pressed', { level: l })); }), 'Only fire while this holds')));
+    if (!conds.length) body.append(h('div', { class: 'ed-muted' }, 'Always (no conditions).'));
+    conds.forEach((c, j) => body.append(this.condEditor(c,
+      (nc) => this.editEvent(i, (x) => { if (x.if) x.if[j] = nc; }),
+      (fn) => this.editEvent(i, (x) => { const cc = x.if?.[j]; if (cc) fn(cc as unknown as Record<string, unknown>); }),
+      () => this.editEvent(i, (x) => { x.if?.splice(j, 1); if (!x.if?.length) delete x.if; }))));
+    // DO
+    body.append(h('div', { class: 'ed-sec' }, 'Do'));
+    ev.actions.forEach((a, j) => body.append(this.actionBlock(a, i, j, ev.actions.length)));
+    body.append(this.row('', this.specSelect(ACTIONS, '', (type) => this.editEvent(i, (x) => { x.actions.push(makeAction(type, { level: l, cell: this.cellNear() })); }), '+ add an action…')));
+    body.append(this.row('Once per life', this.check(!!ev.once, (v) => this.editEvent(i, (x) => { if (v) x.once = true; else delete x.once; })), h('span', { class: 'ed-muted' }, 'off = every time')));
+    card.append(body);
+    return card;
   }
 
-  private actionRow(a: Action, i: number, j: number): HTMLElement {
+  /** A cell near the middle of the view (default spot for new point/rect actions). */
+  private cellNear(): Pt {
+    const r = this.host.viewRect();
+    return { x: Math.max(1, Math.floor(r.x + r.w / 2)), y: Math.max(1, Math.floor(r.y + r.h / 2)) };
+  }
+
+  private actionBlock(a: Action, i: number, j: number, n: number): HTMLElement {
     const { doc } = this.host;
-    const edit = (fn: (x: Action) => void) => this.editEvent(i, (e) => { const x = e.actions[j]; if (x) fn(x); });
-    const rows: HTMLElement[] = [h('div', { class: 'ed-row' }, h('b', {}, ACTION_LABEL[a.type]),
-      h('span', { style: 'margin-left:auto;opacity:.6' }, 'delay'), h('input', { type: 'number', class: 'ed-in', style: 'flex:0 0 50px', value: a.delay ?? 0, min: 0, step: 5, title: 'Ticks before it happens (60 = 1 s)', onchange: (e) => edit((x) => { const n = Number((e.target as HTMLInputElement).value); if (n > 0) x.delay = n; else delete x.delay; }) }),
-      h('button', { class: 'ed-x', title: 'Remove action', onclick: () => this.editEvent(i, (e) => { e.actions.splice(j, 1); }) }, '✕'))];
-    const tt = ACTION_TARGET[a.type];
-    if (tt && 'target' in a) {
-      const opts = doc.objectsOfType(tt).map((o) => [o.id, o.id] as [string, string]);
-      rows.push(this.row('Target', this.select(a.target, opts.length ? opts : [['', `(no ${tt})`]], (v) => edit((x) => { if ('target' in x) x.target = v; }))));
-    }
-    if ('rect' in a) {
-      const r = a.rect;
-      rows.push(this.row('Tiles', h('span', {}, `${r.w}×${r.h} at ${r.x},${r.y}`), this.mini('pick', () => this.host.pick({ type: 'rect', prompt: 'Drag over the tiles', onPick: (nr) => edit((x) => { if ('rect' in x) x.rect = nr; }) }))));
-    }
-    switch (a.type) {
-      case 'addTiles': rows.push(this.row('Tile', this.select(a.tile ?? '#', [['#', 'plating'], ['=', 'troll'], ['%', 'crumbling'], ['^', 'floor spikes'], ['~', 'water']], (v) => edit((x) => { if (x.type === 'addTiles') x.tile = v as '#'; })))); break;
-      case 'moveTiles': case 'moveDoor':
-        rows.push(this.row(a.type === 'moveTiles' ? 'Offsets' : 'Path', this.text(a.path.map((p) => `${p.x},${p.y}`).join('; '), (v) => edit((x) => { if (x.type === 'moveTiles' || x.type === 'moveDoor') x.path = parsePath(v); }), 'x,y; x,y')),
-          this.row('Speed t/s', this.num(a.speed, (v) => edit((x) => { if (x.type === 'moveTiles' || x.type === 'moveDoor') x.speed = v; }), 0.5, 16, 0.5)));
-        break;
-      case 'setCurrent':
-        rows.push(this.row('Direction', this.select(String(a.dir), [['1', '→'], ['-1', '←']], (v) => edit((x) => { if (x.type === 'setCurrent') x.dir = Number(v) as 1; }))),
-          this.row('Speed t/s', this.num(a.speed, (v) => edit((x) => { if (x.type === 'setCurrent') x.speed = v; }), 0, 8, 0.1)));
-        break;
-      case 'laser': rows.push(this.row('Mode', this.select(a.mode, [['on', 'on'], ['off', 'off'], ['blink', 'blink']], (v) => edit((x) => { if (x.type === 'laser') x.mode = v as 'on'; })))); break;
-      case 'sign': rows.push(this.row('Text', this.text(a.text, (v) => edit((x) => { if (x.type === 'sign') x.text = v; })))); break;
-      case 'shake': rows.push(this.row('Strength', this.num(a.strength, (v) => edit((x) => { if (x.type === 'shake') x.strength = v; }), 1, 30))); break;
-      case 'sfx': rows.push(this.row('Sound', this.select(a.name, soundList().map((n) => [n.name, n.name] as [string, string]), (v) => edit((x) => { if (x.type === 'sfx') x.name = v; })))); break;
-      default: break;
-    }
+    const l = doc.level;
+    const spec = actionSpec(a.type);
+    const put = (fn: (r: Record<string, unknown>) => void) => this.editEvent(i, (e) => { const x = e.actions[j]; if (x) fn(x as unknown as Record<string, unknown>); });
+    const move = (d: number) => this.editEvent(i, (e) => { const k = j + d; if (k < 0 || k >= e.actions.length) return; const [x] = e.actions.splice(j, 1); e.actions.splice(k, 0, x!); });
+    const delay = h('input', { type: 'number', class: 'ed-in', style: 'flex:0 0 64px', value: +((a.delay ?? 0) / 60).toFixed(2), min: 0, step: 0.1, title: 'Wait this many seconds first',
+      onchange: (e) => put((x) => { const s = Number((e.target as HTMLInputElement).value); if (s > 0) x.delay = Math.round(s * 60); else delete x.delay; }) });
+    const head = h('div', { class: 'ed-row' },
+      this.specSelect(ACTIONS, a.type, (type) => this.editEvent(i, (e) => {
+        const old = e.actions[j] as unknown as Record<string, unknown> | undefined;
+        const na = makeAction(type, { level: l, target: typeof old?.target === 'string' ? old.target : undefined, cell: (old?.rect as Pt | undefined) ?? (old?.to as Pt | undefined) ?? (old?.at as Pt | undefined) ?? this.cellNear() });
+        if (old?.delay) na.delay = old.delay as number;
+        e.actions[j] = na;
+      })),
+      h('button', { class: 'ed-x', style: 'margin-left:0', title: 'Remove action', onclick: () => this.editEvent(i, (e) => { e.actions.splice(j, 1); }) }, '✕'));
+    const timing = h('div', { class: 'ed-row' }, h('label', {}, 'Wait'), delay, h('span', { style: 'opacity:.6;font-size:11px' }, 's first'), h('span', { style: 'flex:1' }),
+      j > 0 ? this.mini('↑', () => move(-1), 'Move up') : null,
+      j < n - 1 ? this.mini('↓', () => move(1), 'Move down') : null);
+    const rows: HTMLElement[] = [head];
+    if (spec.hint) rows.push(h('div', { class: 'ed-muted' }, spec.hint));
+    rows.push(...this.fieldsFor(spec, a as unknown as Record<string, unknown>, put), timing);
     return h('div', { class: 'ed-act' }, ...rows);
+  }
+
+  /** A condition: type + its fields. */
+  private condEditor(c: Condition, replace: (c: Condition) => void, put: (fn: (r: Record<string, unknown>) => void) => void, remove?: () => void): HTMLElement {
+    const l = this.host.doc.level;
+    const spec = condSpec(c.type);
+    return h('div', { class: 'ed-cond' },
+      h('div', { class: 'ed-row' }, this.specSelect(CONDITIONS, c.type, (type) => replace(makeCond(type, { level: l }))),
+        remove ? h('button', { class: 'ed-x', title: 'Remove condition', onclick: remove }, '✕') : null),
+      ...this.fieldsFor(spec, c as unknown as Record<string, unknown>, put),
+      h('div', { class: 'ed-muted' }, `= ${describeCond(l, c)}`));
+  }
+
+  /** A <select> of specs, grouped. */
+  private specSelect(specs: Spec[], v: string, on: (type: string) => void, placeholder?: string): HTMLSelectElement {
+    const sel = h('select', { onchange: (e) => { const val = (e.target as HTMLSelectElement).value; if (val) on(val); } },
+      placeholder ? h('option', { value: '', selected: !v }, placeholder) : null,
+      ...grouped(specs).map(([g, list]) => {
+        const og = h('optgroup', { label: g });
+        og.append(...list.map((s) => h('option', { value: s.type, selected: s.type === v, title: s.hint }, s.label)));
+        return og;
+      }));
+    return sel;
+  }
+
+  /** Controls for every field of a spec on a record. `put` applies a change to the live record (inside an undo step). */
+  private fieldsFor(spec: Spec, rec: Record<string, unknown>, put: (fn: (r: Record<string, unknown>) => void) => void): HTMLElement[] {
+    return spec.fields.map((f) => {
+      if (f.kind.k === 'cond') {
+        const c = rec[f.key] as Condition | undefined;
+        if (!c) return h('span');
+        return this.condEditor(c, (nc) => put((r) => { r[f.key] = nc; }),
+          (fn) => put((r) => { const cc = r[f.key] as Record<string, unknown> | undefined; if (cc) fn(cc); }));
+      }
+      return this.field(f, rec[f.key], (v) => put((r) => setField(r, f, v)), rec);
+    });
+  }
+
+  /** One field row with the right control and, for anything on the map, an eyedropper. */
+  field(f: Field, val: unknown, set: (v: unknown) => void, rec: Record<string, unknown> = {}): HTMLElement {
+    const { doc } = this.host;
+    const l = doc.level;
+    const k = f.kind;
+    const eye = (title: string, run: () => void) => h('button', { class: 'ed-eye', title, onclick: run }, '◉');
+    const opt = f.optional;
+    switch (k.k) {
+      case 'zone': {
+        const zones = l.zones.map((z) => [z.id, z.id] as [string, string]);
+        return this.row(f.label, this.select(String(val ?? ''), zones.length ? (val && !zones.some((z) => z[0] === val) ? [[String(val), `${val} (missing!)`], ...zones] : zones) : [['', '(draw a zone first)']], set),
+          eye('Pick a zone on the map', () => this.host.pick({ type: 'zone', prompt: `Click a zone for “${f.label}”`, onPick: set })));
+      }
+      case 'obj': case 'plate': {
+        const fits = (o: LevelObject) => k.k === 'plate' ? (o.type === 'plate' || o.type === 'sensor') : fitsObj(k, o);
+        const opts: Array<[string, string]> = [...(k.k === 'obj' ? k.any ?? [] : []), ...l.objects.filter(fits).map((o) => [o.id, `${nameOf(l, o.id)}${o.type === 'gadget' ? '' : ` · ${o.type}`}`] as [string, string])];
+        const v = String(val ?? '');
+        if (v && !opts.some((o) => o[0] === v)) opts.unshift([v, `${v} (missing!)`]);
+        if (!opts.length) opts.push(['', `(place one first)`]);
+        const what = k.k === 'plate' ? 'a pad or light sensor' : k.types?.length === 1 ? `a ${k.types[0]}` : 'an object';
+        return this.row(f.label, this.select(v, opt ? [['', '— any —'], ...opts] : opts, (x) => set(x || undefined)),
+          eye(`Pick ${what} on the map`, () => this.host.pick({ type: 'object', prompt: `Click ${what} for “${f.label}”`, accept: fits, onPick: set })));
+      }
+      case 'var': {
+        const listId = 'ed-vars-dl';
+        const names = (l.vars ?? []).map((x) => x.name);
+        const inp = h('input', { type: 'text', value: String(val ?? ''), list: listId, placeholder: 'name', title: 'Type a new name to create a variable', onchange: (e) => {
+          const name = (e.target as HTMLInputElement).value.trim().replace(/\s+/g, '_');
+          if (!name) return;
+          doc.edit(() => { doc.ensureVar(name); });
+          set(name);
+        } });
+        return this.row(f.label, inp, h('datalist', { id: listId }, ...names.map((n) => h('option', { value: n }))));
+      }
+      case 'signal': {
+        const listId = 'ed-sig-dl';
+        const names = new Set<string>();
+        for (const ev of l.events) { if (ev.trigger.type === 'signal') names.add(ev.trigger.name); for (const a of ev.actions) if (a.type === 'signal') names.add(a.name); }
+        return this.row(f.label, h('input', { type: 'text', value: String(val ?? ''), list: listId, placeholder: 'any name', onchange: (e) => set((e.target as HTMLInputElement).value.trim() || 'go') }),
+          h('datalist', { id: listId }, ...[...names].map((n) => h('option', { value: n }))));
+      }
+      case 'point': {
+        const p = val as Pt | undefined;
+        return this.row(f.label, h('span', { style: 'flex:1' }, p ? `tile ${p.x}, ${p.y}` : '—'),
+          eye('Click the spot on the map', () => this.host.pick({ type: 'point', prompt: `Click the spot for “${f.label}”`, onPick: set })));
+      }
+      case 'rect': {
+        const r = val as TileRect | undefined;
+        return this.row(f.label, h('span', { style: 'flex:1' }, r ? `${r.w}×${r.h} at ${r.x}, ${r.y}` : '—'),
+          eye('Drag over the tiles on the map', () => this.host.pick({ type: 'rect', prompt: `Drag over the tiles for “${f.label}”`, onPick: set })));
+      }
+      case 'path': {
+        const pts = (val as Pt[] | undefined) ?? [];
+        const base = k.rel ? (rec.rect as TileRect | undefined) : undefined;
+        const abs = (p: Pt) => (base ? { x: p.x + base.x, y: p.y + base.y } : p);
+        const text = pts.length ? pts.map((p) => { const q = abs(p); return `${q.x},${q.y}`; }).join(' → ') : '—';
+        return this.row(f.label, h('span', { style: 'flex:1;font-size:11px' }, text),
+          eye('Click points on the map, in order (Done when finished)', () => {
+            const acc: Pt[] = [];
+            set([]);
+            this.host.pick({ type: 'point', repeat: true, prompt: `Click the path for “${f.label}”, point by point. Done when finished.`, onPick: (c) => {
+              acc.push(base ? { x: c.x - base.x, y: c.y - base.y } : c);
+              set([...acc]);
+            } });
+          }));
+      }
+      case 'num': {
+        const n = val === undefined ? '' : Number(val);
+        const inp = h('input', { type: 'number', value: n, min: k.min, max: k.max, step: k.step, placeholder: opt ? 'unchanged' : '', onchange: (e) => {
+          const raw = (e.target as HTMLInputElement).value;
+          if (raw === '' && opt) { set(undefined); return; }
+          const x = Number(raw);
+          if (Number.isFinite(x)) set(Math.min(k.max, Math.max(k.min, x)));
+        } });
+        return this.row(f.label, inp, k.unit ? h('span', { style: 'opacity:.6;font-size:11px' }, k.unit) : null);
+      }
+      case 'secs': {
+        const inp = h('input', { type: 'number', value: val === undefined ? '' : +(Number(val) / 60).toFixed(2), min: 0, step: 0.1, placeholder: opt ? 'auto' : '', onchange: (e) => {
+          const raw = (e.target as HTMLInputElement).value;
+          if (raw === '' && opt) { set(undefined); return; }
+          const x = Number(raw);
+          if (Number.isFinite(x) && x >= 0) set(Math.max(f.key === 'ticks' ? 1 : 0, Math.round(x * 60)));
+        } });
+        return this.row(f.label, inp, h('span', { style: 'opacity:.6;font-size:11px' }, 's'));
+      }
+      case 'text': return this.row(f.label, k.long ? this.area(String(val ?? ''), (v) => set(v)) : this.text(String(val ?? ''), (v) => set(v)));
+      case 'choice': return this.row(f.label, this.select(String(val ?? ''), opt ? [['', '—'], ...k.opts] : k.opts, (v) => set(v || undefined)));
+      case 'bool': return this.row(f.label, this.select(val === false ? 'n' : 'y', [['y', k.yes], ['n', k.no]], (v) => set(v === 'y')));
+      case 'tri': return this.row(f.label, this.select(val === undefined ? '' : val ? 'y' : 'n', [['', 'unchanged'], ['y', k.yes], ['n', k.no]], (v) => set(v === '' ? undefined : v === 'y')));
+      case 'sound': return this.row(f.label, this.select(String(val ?? 'pop'), soundList().map((s) => [s.name, s.name] as [string, string]), set), h('button', { class: 'ed-eye', title: 'Listen', onclick: () => { const nm = String(val ?? 'pop'); const ov = l.audio?.sfx?.[nm]; void playParams(ov ? fill(ov) : baseParams(nm)); } }, '♪'));
+      case 'tile': return this.row(f.label, this.select(String(val ?? '#'), TILES, set));
+      case 'cause': return this.row(f.label, this.select(String(val ?? ''), [['', opt ? 'any' : 'spikes'], ...CAUSES], (v) => set(v || undefined)));
+      case 'op': return this.row(f.label, this.select(String(val ?? '>='), OPS, set));
+      case 'cond': return h('span');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -974,6 +1395,8 @@ export class EditorUI {
       h('div', { class: 'ed-gallery' },
         card('Blank chamber', 'One screen, a puzzle room. 24×12.', () => this.host.newLevel('chamber')),
         card('Blank zone', 'A big scrolling area to explore. 80×30.', () => this.host.newLevel('zone')),
+        card('Tiny room', 'A closet-sized challenge. 10×6.', () => this.host.newLevel('chamber', 10, 6)),
+        card('Giant hall', 'A huge space for a whole adventure. 200×60.', () => this.host.newLevel('zone', 200, 60)),
         card('Last saved draft', 'Pick up where you left off.', () => this.host.openLevel('draft')),
         card('Import a file…', 'A level JSON from your computer.', () => this.fileInput.click()),
         ...shipped.map((s) => card(`${s.id} · ${s.name}`, s.kind === 'zone' ? 'World zone' : s.act ? `Act ${s.act} chamber` : 'Level', () => this.host.openLevel(s.id)))));
@@ -1330,13 +1753,15 @@ export class EditorUI {
   // ---------------------------------------------------------------------------
 
   startTips(force = false): void {
-    const KEY = 'dietrying.editor.tips.v2';
+    const KEY = 'dietrying.editor.tips.v3';
     if (!force) { try { if (localStorage.getItem(KEY)) return; } catch { return; } }
     const steps: Array<{ x: number; y: number; html: string }> = [
       { x: LEFT_W + 20, y: TOP_H + 20, html: '<b>Welcome to the lab.</b> Everything you see is editable. Left-drag paints, right-drag erases, wheel zooms, Space-drag pans.' },
       { x: 70, y: TOP_H + 60, html: '<b>Tools</b> on the left rail: brush, rectangle, line, fill, eyedropper, select, stamp. Keys in the corners.' },
       { x: 270, y: TOP_H + 10, html: '<b>Layers</b>: terrain, objects, background and foreground decor, images, zones. Pick one, then pick what to paint below it.' },
-      { x: GAME_W - RIGHT_W - 290, y: TOP_H + 30, html: '<b>Inspect</b> anything you select. <b>Level</b> has size, look, music and the rules (gravity, jump, body cap…).' },
+      { x: 270, y: TOP_H + 200, html: '<b>Gadgets</b> (Objects layer, scroll down) are mechanics you build: springs, fans, teleporters, saws, coins, keys and locks, or a blank part. Give any of them a look, an effect, a path and logic in Inspect.' },
+      { x: GAME_W - RIGHT_W - 290, y: TOP_H + 30, html: '<b>Inspect</b> anything you select. <b>Events</b> are the logic: when something happens, only if a condition holds, do actions. Every ◉ button is an eyedropper: click it, then click the thing on the map.' },
+      { x: 270, y: TOP_H + 40, html: 'The fastest way to wire things: <b>⤳ Link</b> (Zones layer). Click what starts it, then click what should happen. <b>Level</b> has the size (4×3 up to 256×96), rules, abilities and variables.' },
       { x: GAME_W - 560, y: TOP_H + 4, html: 'Pictures become pixel art with <b>🖼 Image</b>. Change any sound in <b>♪ Sounds</b>, write a theme in <b>♫ Music</b>. Press <b>P</b> to play from the cursor, <b>Ctrl+K</b> for everything.' },
     ];
     let i = 0;
@@ -1362,13 +1787,25 @@ function toggleIn<T>(arr: T[], v: T, on: boolean): T[] {
   return [...s];
 }
 
-function parsePath(s: string): Pt[] {
-  return s.split(/[;|]/).map((p) => p.trim()).filter(Boolean).map((p) => {
-    const [x, y] = p.split(/[ ,]+/).map(Number);
-    return { x: Number.isFinite(x) ? x! : 0, y: Number.isFinite(y) ? y! : 0 };
-  });
-}
 
 /** Rough share-code size for warnings. */
 export function shareSize(l: Parameters<typeof encodeLevel>[0]): number { return encodeLevel(l).length; }
 
+
+/** A fresh effect of a kind, with sensible numbers for a gadget of this size. */
+function defaultEffect(kind: GadgetEffect['kind'], g: GadgetObj): GadgetEffect {
+  switch (kind) {
+    case 'none': return { kind };
+    case 'kill': return { kind, cause: 'spike' };
+    case 'bounce': return { kind, height: 6 };
+    case 'launch': return { kind, vx: 12, vy: -14 };
+    case 'force': return { kind, ax: 0, ay: -95 };
+    case 'gravity': return { kind, scale: 0.3 };
+    case 'teleport': return { kind, to: { x: Math.floor(g.x) + 6, y: Math.floor(g.y) } };
+    case 'slow': return { kind, factor: 0.35 };
+    case 'conveyor': return { kind, speed: 4 };
+    case 'checkpoint': return { kind };
+    case 'collect': return { kind, var: 'coins', amount: 1 };
+    case 'win': return { kind };
+  }
+}

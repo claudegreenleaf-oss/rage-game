@@ -66,5 +66,8 @@
     "jump": 0.85
   },
   "kind": "chamber",
-  "par": 2
+  "par": 2,
+  "abilities": {
+    "wallJump": false
+  }
 }

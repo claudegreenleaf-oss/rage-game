@@ -6,6 +6,7 @@ import {
 } from './constants';
 import { sweepX, sweepY, xOverlapLen, overlapX } from './physics';
 import type { World } from './world';
+import { gadgetField, scaledGravity } from './gadgets';
 
 /** Where a wall-spike ledge sits inside its tile. */
 export const LEDGE_TOP = 24;
@@ -139,7 +140,13 @@ export function updateCorpses(w: World): void {
     }
 
     // Gravity (plain sweep: whatever rides on us falls by itself).
-    c.vy = Math.min(c.vy + GRAVITY, MAX_FALL);
+    const field = w.obj.gadgets.length ? gadgetField(w, c, false) : null;
+    if (field && field.any) {
+      c.vy = Math.min(c.vy + scaledGravity(GRAVITY, field.gravity) + field.ay, MAX_FALL);
+      if (field.gravity <= 0 && field.ay === 0) c.vy = Math.sign(c.vy) * Math.max(0, Math.abs(c.vy) - 2);
+      if (field.ax !== 0) c.vx = Math.max(-24, Math.min(24, c.vx + field.ax));
+      if (field.slow < 1) { c.vx = Math.round(c.vx * field.slow); c.vy = Math.round(c.vy * field.slow); }
+    } else c.vy = Math.min(c.vy + GRAVITY, MAX_FALL);
     const solids = w.solidsAround(c, 0, c.vy, c.id, true);
     const { d, hit } = sweepY(c, c.vy, solids);
     c.y += d;

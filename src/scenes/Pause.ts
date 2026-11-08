@@ -1,4 +1,4 @@
-// Pause menu over the game: Resume · Restart · (Map) · Chambers/Title · Music · Effects · Sound.
+// Pause menu over the game: Resume · Restart · (Map) · (Chambers) · Main menu (Back to editor in playtest) · Music · Effects · Sound.
 import Phaser from 'phaser';
 import type { Game } from './Game';
 import { C } from '../render/palette';
@@ -27,7 +27,9 @@ export class Pause extends Phaser.Scene {
     ];
     if (world) items.push(['Map (M)', () => { this.scene.stop(); g.openMap(true); }, C.paper]);
     if (g.data_.mode === 'play') items.push(['Chambers', () => { this.scene.stop('Hud'); this.scene.stop('Game'); this.scene.stop(); this.scene.start('LevelSelect'); }, C.paper]);
-    else items.push(['Title', toTitle, C.paper]);
+    // Every mode can leave for the main menu; a playtest goes back to the editor it came from.
+    if (g.data_.mode === 'playtest') items.push(['Back to editor', () => { this.scene.stop(); g.exit({ won: false, deaths: g.world.deathCount }); }, C.paper]);
+    else items.push(['Main menu', toTitle, C.paper]);
     const GAP = 64, n = items.length + 3;
     const panelH = Math.round((n * GAP + 48) / UI);
     const panel = this.add.container(640, 392);
