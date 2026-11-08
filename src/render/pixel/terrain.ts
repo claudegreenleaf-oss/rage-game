@@ -152,9 +152,9 @@ function drawWall(b: Buf, ox: number, oy: number, cx: number, cy: number, solid:
   } else if (d < 0.16) {
     let x = 2 + Math.floor(r(3) * 10);
     for (let j = 1; j < 14; j++) { put(x, j, pal.wallDark); if (j % 3 === 0) x += r(4 + j) < 0.5 ? -1 : 1; }
-  } else if (d < 0.26 && act === 3) {
+  } else if (d < 0.26 && act >= 3) {
     for (let i = 5; i < 11; i++) { put(i, 3, KEY.K!); put(i, 4, pal.trim); put(i, 5, mix(pal.trim, pal.wall, 0.5)); }
-  } else if (d < 0.3 && act === 3) {
+  } else if (d < 0.3 && act >= 3) {
     for (const [x, y] of [[4, 11], [5, 12], [6, 12], [7, 12], [8, 12], [9, 12], [10, 11], [4, 13], [10, 13]] as const) put(x, y, KEY.o!);
   }
   // Cable runs span whole rows, sagging between brackets every few tiles.
@@ -167,7 +167,7 @@ function drawWall(b: Buf, ox: number, oy: number, cx: number, cy: number, solid:
     }
   }
   // Moss creeping up from floors, water stains under ceilings in the flooded wing.
-  const growth = act === 2 ? 0.5 : act === 3 ? 0.35 : 0.18;
+  const growth = act === 2 ? 0.5 : act === 3 ? 0.35 : act === 4 ? 0.3 : 0.18;
   if (s) for (let i = 0; i < T; i++) { const hgt = hash2(cx * T + i, cy, 43) < growth ? 1 + Math.floor(hash2(cx * T + i, cy, 44) * 4) : 0; for (let k = 0; k < hgt; k++) put(i, T - 1 - k, k === hgt - 1 ? pal.mossLight : pal.moss, 0.85); }
   if (act === 2 && n) for (let i = 0; i < T; i++) if (hash2(cx * T + i, cy, 45) < 0.25) { const len = 2 + Math.floor(hash2(cx * T + i, cy, 46) * 8); for (let k = 0; k < len; k++) put(i, k, mix(pal.wallDark, pal.stain, 0.5), 0.6); }
   for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
@@ -183,14 +183,14 @@ function drawWall(b: Buf, ox: number, oy: number, cx: number, cy: number, solid:
 
 /** Vines (and, deep down, roots) hanging from an exposed ceiling into the cell below. */
 function drawVines(b: Buf, ox: number, oy: number, cx: number, cy: number, pal: ActPal, act: number): void {
-  const chance = act === 1 ? 0.12 : act === 2 ? 0.3 : 0.2;
+  const chance = act === 1 ? 0.12 : act === 2 ? 0.3 : act === 4 ? 0.34 : 0.2;
   for (let i = 1; i < T - 1; i++) {
     const gx = cx * T + i;
     if (hash2(gx, cy, 50) > chance) continue;
     const len = 2 + Math.floor(hash2(gx, cy, 51) * (act === 1 ? 6 : 12));
     let x = i;
     for (let k = 0; k < len; k++) {
-      b.set(ox + x, oy + k, act === 3 && hash2(gx, k, 52) < 0.5 ? pal.root : pal.mossDark);
+      b.set(ox + x, oy + k, (act === 3 && hash2(gx, k, 52) < 0.5) || (act === 4 && hash2(gx, k, 52) < 0.8) ? pal.root : pal.mossDark);
       if (k % 3 === 2) b.set(ox + x + (k % 2 ? 1 : -1), oy + k, pal.moss);
       if (k % 5 === 4) x += hash2(gx, k, 53) < 0.5 ? -1 : 1;
     }
@@ -242,6 +242,9 @@ export interface TerrainSource {
   tileAt(cx: number, cy: number): string;
   /** Extra cells to treat as solid for autotiling (idle droppers). */
   extraSolid?: Set<number>;
+  /** Editor bg decor grid (chars index `decorIds`). */
+  decorBg?: string[];
+  decorIds?: readonly string[];
 }
 
 export const cellKey = (cx: number, cy: number): number => cy * 1000 + cx;
@@ -266,6 +269,10 @@ export function bakeTerrain(scene: Phaser.Scene, key: string, src: TerrainSource
   const each = (fn: (cx: number, cy: number, g: string) => void) => { for (let cy = 0; cy < src.H; cy++) for (let cx = 0; cx < src.W; cx++) fn(cx, cy, src.tileAt(cx, cy)); };
   each((cx, cy, g) => { if (!isSolidGlyph(g)) drawWall(b, cx * T, cy * T, cx, cy, solid, pal, act); });
   each((cx, cy, g) => { if (!isSolidGlyph(g) && cy > 0 && solid(cx, cy - 1)) drawVines(b, cx * T, cy * T, cx, cy, pal, act); });
+  if (src.decorBg && src.decorIds) each((cx, cy) => {
+    const i = 'abcdefghijklmnopqrstuvwxyzABCDEF'.indexOf(src.decorBg![cy]?.[cx] ?? '.');
+    if (i >= 0) paintDecor(b, cx * T, cy * T, src.decorIds![i]!, pal, cx, cy);
+  });
   each((cx, cy, g) => {
     if (g === '}' || g === '{') drawConveyorHousing(b, cx * T, cy * T, pal);
     else if (isSolidGlyph(g)) drawPanel(b, cx * T, cy * T, cx, cy, solid, pal);
@@ -352,4 +359,123 @@ export function crusherTexture(scene: Phaser.Scene, key: string, wTiles: number,
   }
   b.blit(tex.getContext());
   tex.refresh();
+}
+
+// ---------------------------------------------------------------------------
+// Crumbling floor ('%'): a cracked, chipped panel with a hazard corner, drawn as its own sprite
+// so it can tremble and break away.
+// ---------------------------------------------------------------------------
+
+export function crumbleTexture(scene: Phaser.Scene, key: string, act: number | undefined): void {
+  if (scene.textures.exists(key)) return;
+  const pal = actPal(act);
+  const b = new Buf(T, T);
+  const base = mix(pal.plate, pal.plateHi, 0.28);
+  for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
+    let c = j === 1 ? pal.plateHi : j >= T - 2 ? mix(base, pal.plateDark, 0.6) : base;
+    if (i === 0 || i === T - 1 || j === 0 || j === T - 1) c = KEY.k!;
+    b.set(i, j, c);
+  }
+  // Dense cracks and chipped corners.
+  for (const [x0, len, dir] of [[3, 9, 1], [8, 12, -1], [12, 7, -1]] as const) {
+    let x = x0;
+    for (let y = 2; y < 2 + len && y < T - 1; y++) { b.set(x, y, KEY.k!); if (y % 2 === 0) x += dir; }
+  }
+  for (const [x, y] of [[1, 0], [2, 0], [1, 1], [14, 0], [13, 0], [6, 0]] as const) b.clear(x, y);
+  b.set(1, 2, KEY.k!); b.set(13, 1, KEY.k!);
+  for (let i = 0; i < 3; i++) for (let j = 0; j <= i; j++) b.set(T - 3 - j, T - 5 + i, i === 2 ? KEY.k! : KEY.z!);
+  const t = scene.textures.createCanvas(key, T, T)!;
+  b.blit(t.getContext());
+  t.refresh();
+}
+
+// ---------------------------------------------------------------------------
+// Decor tiles for the editor's bg/fg layers (DECOR_IDS), painted in the lab style.
+// ---------------------------------------------------------------------------
+
+type DecorPaint = (p: (x: number, y: number, c: number, a?: number) => void, pal: ActPal, r: (k: number) => number) => void;
+const rect = (p: (x: number, y: number, c: number, a?: number) => void, x: number, y: number, w: number, h: number, c: number, a = 1) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) p(x + i, y + j, c, a); };
+const box = (p: (x: number, y: number, c: number, a?: number) => void, x: number, y: number, w: number, h: number, fill: number, edge = KEY.k!) => { rect(p, x, y, w, h, edge); rect(p, x + 1, y + 1, w - 2, h - 2, fill); };
+
+export const DECOR: Record<string, DecorPaint> = {
+  panel: (p, pal) => { box(p, 0, 0, 16, 16, pal.plate); rect(p, 1, 1, 14, 1, pal.plateLight); p(3, 3, pal.plateHi); p(12, 3, pal.plateHi); p(3, 12, pal.plateHi); p(12, 12, pal.plateHi); },
+  panelDark: (p, pal) => { box(p, 0, 0, 16, 16, pal.plateDark); rect(p, 1, 1, 14, 1, pal.plate); },
+  panelCracked: (p, pal) => { box(p, 0, 0, 16, 16, pal.plate); let x = 5; for (let y = 1; y < 15; y++) { p(x, y, KEY.k!); if (y % 3 === 0) x++; } },
+  window: (p, pal) => { box(p, 1, 1, 14, 14, mix(pal.shaft, pal.deep, 0.25), pal.plateDark); rect(p, 7, 2, 2, 12, pal.plateDark); rect(p, 2, 7, 12, 2, pal.plateDark); p(3, 3, KEY.w!); },
+  windowBroken: (p, pal) => { box(p, 1, 1, 14, 14, mix(pal.shaft, pal.deep, 0.5), pal.plateDark); for (const [x, y] of [[4, 3], [5, 4], [6, 6], [9, 5], [10, 8], [11, 10]] as const) p(x, y, KEY.k!); p(7, 6, KEY.w!); },
+  monitor: (p, pal) => { box(p, 2, 3, 12, 9, mix(KEY.k!, pal.glow, 0.45), pal.plateDark); rect(p, 4, 5, 6, 1, pal.glow); rect(p, 4, 7, 4, 1, pal.glow); rect(p, 7, 12, 2, 2, pal.plateDark); rect(p, 5, 14, 6, 1, pal.plateDark); },
+  monitorDead: (p, pal) => { box(p, 2, 3, 12, 9, KEY.K!, pal.plateDark); p(10, 5, KEY.w!, 0.5); rect(p, 7, 12, 2, 2, pal.plateDark); },
+  server: (p, pal) => { box(p, 3, 0, 10, 16, pal.plateDark); for (let y = 2; y < 15; y += 3) { rect(p, 4, y, 8, 1, KEY.k!); p(10, y + 1, y % 2 ? pal.glow : pal.light); } },
+  tank: (p, pal) => { box(p, 3, 0, 10, 16, mix(pal.glow, pal.deep, 0.55), pal.plateDark); rect(p, 4, 1, 1, 14, KEY.w!, 0.6); p(8, 6, KEY.w!); p(9, 10, KEY.w!); rect(p, 2, 0, 12, 2, pal.plateDark); rect(p, 2, 14, 12, 2, pal.plateDark); },
+  tankBroken: (p, pal) => { rect(p, 2, 14, 12, 2, pal.plateDark); for (let y = 6; y < 14; y++) { p(3, y, pal.plateHi); p(12, y, pal.plateHi); } p(4, 5, pal.plateHi); p(11, 7, pal.plateHi); rect(p, 4, 13, 8, 1, pal.moss); },
+  pipeH: (p, pal) => { rect(p, 0, 5, 16, 6, KEY.k!); rect(p, 0, 6, 16, 4, pal.plate); rect(p, 0, 6, 16, 1, pal.plateHi); rect(p, 7, 4, 2, 8, pal.plateDark); },
+  pipeV: (p, pal) => { rect(p, 5, 0, 6, 16, KEY.k!); rect(p, 6, 0, 4, 16, pal.plate); rect(p, 6, 0, 1, 16, pal.plateHi); rect(p, 4, 7, 8, 2, pal.plateDark); },
+  cable: (p) => { for (let i = 0; i < 16; i++) { const y = 3 + Math.round(Math.sin((i / 15) * Math.PI) * 6); p(i, y, KEY.k!); p(i, y + 1, KEY.K!); } },
+  vent: (p, pal) => { box(p, 2, 4, 12, 8, pal.plateDark); for (let y = 6; y < 11; y += 2) rect(p, 3, y, 10, 1, KEY.k!); },
+  grate: (p, pal) => { box(p, 0, 0, 16, 16, pal.plateDark); for (let i = 2; i < 15; i += 3) { rect(p, i, 1, 1, 14, KEY.k!); rect(p, 1, i, 14, 1, KEY.k!); } },
+  lamp: (p, pal) => { rect(p, 7, 0, 2, 5, KEY.k!); box(p, 4, 5, 8, 4, pal.plateDark); rect(p, 5, 9, 6, 1, pal.light); for (let j = 10; j < 16; j++) rect(p, 6 - (j - 10) / 2, j, 4 + (j - 10), 1, pal.light, 0.12); },
+  vine: (p, pal, r) => { let x = 7; for (let y = 0; y < 16; y++) { p(x, y, pal.mossDark); if (y % 3 === 1) p(x + (y % 2 ? 1 : -1), y, pal.moss); if (y % 5 === 4) x += r(y) < 0.5 ? -1 : 1; } },
+  ivy: (p, pal, r) => { for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) if (r(j * 16 + i) < 0.28) p(i, j, r(j + i * 3) < 0.5 ? pal.moss : pal.mossDark); },
+  moss: (p, pal, r) => { for (let i = 0; i < 16; i++) { const h = 2 + Math.floor(r(i) * 5); for (let k = 0; k < h; k++) p(i, 15 - k, k === h - 1 ? pal.mossLight : pal.moss); } },
+  fern: (p, pal) => { for (let k = 0; k < 5; k++) { for (let i = 0; i < 6; i++) { p(8 + i, 12 - k * 2 - Math.floor(i / 2), pal.moss); p(7 - i, 12 - k * 2 - Math.floor(i / 2), pal.mossDark); } } rect(p, 7, 4, 2, 12, pal.mossDark); },
+  roots: (p, pal, r) => { for (let k = 0; k < 3; k++) { let x = 3 + k * 5; for (let y = 0; y < 16; y++) { p(x, y, pal.root); if (y % 3 === 0) x += r(k * 20 + y) < 0.5 ? -1 : 1; } } },
+  mushroom: (p, pal) => { rect(p, 7, 10, 2, 6, KEY.W!); box(p, 3, 6, 10, 5, pal.light); p(5, 7, KEY.w!); p(9, 8, KEY.w!); },
+  puddle: (p) => { rect(p, 2, 14, 12, 2, 0x2c9a8c, 0.85); rect(p, 4, 14, 4, 1, 0x9ff0d8); },
+  bones: (p) => { for (const [x, y] of [[3, 13], [4, 14], [5, 14], [6, 14], [7, 14], [8, 13], [10, 12], [11, 12], [12, 13], [11, 14]] as const) p(x, y, KEY.o!); p(11, 13, KEY.k!); },
+  crate: (p, pal) => { box(p, 1, 3, 14, 13, pal.plate); rect(p, 2, 4, 12, 1, pal.plateHi); rect(p, 5, 8, 6, 4, KEY.z!); p(7, 9, KEY.k!); p(8, 10, KEY.k!); },
+  barrel: (p, pal) => { box(p, 3, 2, 10, 14, pal.light); rect(p, 4, 5, 8, 1, KEY.k!); rect(p, 4, 12, 8, 1, KEY.k!); rect(p, 6, 7, 4, 4, KEY.z!); },
+  console: (p, pal) => { box(p, 1, 8, 14, 8, pal.plateDark); box(p, 3, 3, 10, 6, mix(KEY.k!, pal.glow, 0.5)); for (let i = 3; i < 13; i += 2) p(i, 10, i % 4 ? KEY.r! : KEY.j!); },
+  hazardStripe: (p) => { for (let j = 6; j < 10; j++) for (let i = 0; i < 16; i++) p(i, j, ((i + j) >> 1) % 2 ? KEY.z! : KEY.k!); },
+  poster: (p) => { box(p, 3, 2, 10, 12, KEY.W!); rect(p, 5, 4, 6, 2, KEY.r!); rect(p, 5, 7, 6, 1, KEY.K!); rect(p, 5, 9, 4, 1, KEY.K!); p(12, 13, KEY.O!); },
+  sign: (p) => { box(p, 2, 4, 12, 8, KEY.z!); rect(p, 7, 5, 2, 4, KEY.k!); p(7, 10, KEY.k!); p(8, 10, KEY.k!); },
+  chain: (p) => { for (let y = 0; y < 16; y++) { p(7, y, y % 4 < 2 ? KEY.m! : KEY.k!); p(8, y, y % 4 < 2 ? KEY.k! : KEY.l!); } },
+  debris: (p, pal, r) => { for (let k = 0; k < 7; k++) { const x = Math.floor(r(k) * 13), y = 12 + Math.floor(r(k + 9) * 3); rect(p, x, y, 2 + Math.floor(r(k + 3) * 2), 2, k % 2 ? pal.plate : pal.plateDark); } },
+};
+
+/** Paint one decor tile at (ox, oy). */
+export function paintDecor(b: Buf, ox: number, oy: number, id: string, pal: ActPal, cx: number, cy: number): void {
+  const f = DECOR[id];
+  if (!f) return;
+  f((x, y, c, a = 1) => { if (x >= 0 && y >= 0 && x < T && y < T) b.set(ox + x, oy + y, c, a); }, pal, (k) => hash2(cx * 37 + k, cy, 80));
+}
+
+/** Bake an fg decor layer to its own canvas; returns which cells are covered (for fading near Pip). */
+export function bakeDecorLayer(scene: Phaser.Scene, key: string, grid: string[], w: number, h: number, act: number | undefined, ids: readonly string[]): boolean[][] {
+  if (scene.textures.exists(key)) scene.textures.remove(key);
+  const b = new Buf(w * T, h * T);
+  const pal = actPal(act);
+  const cover: boolean[][] = [];
+  for (let cy = 0; cy < h; cy++) {
+    cover.push([]);
+    for (let cx = 0; cx < w; cx++) {
+      const ch = grid[cy]?.[cx] ?? '.';
+      const i = 'abcdefghijklmnopqrstuvwxyzABCDEF'.indexOf(ch);
+      cover[cy]!.push(i >= 0);
+      if (i >= 0) paintDecor(b, cx * T, cy * T, ids[i]!, pal, cx, cy);
+    }
+  }
+  const t = scene.textures.createCanvas(key, b.w, b.h)!;
+  b.blit(t.getContext());
+  t.refresh();
+  return cover;
+}
+
+/** Decode an editor PixelArt into a texture. */
+export function pixelArtTexture(scene: Phaser.Scene, key: string, art: { w: number; h: number; palette: string[]; data: string }): boolean {
+  if (scene.textures.exists(key)) scene.textures.remove(key);
+  try {
+    const bin = atob(art.data);
+    if (bin.length < art.w * art.h || art.w <= 0 || art.h <= 0 || art.w > 1024 || art.h > 1024) return false;
+    const b = new Buf(art.w, art.h);
+    const cols = art.palette.map((c) => parseInt(c.replace('#', ''), 16));
+    for (let i = 0; i < art.w * art.h; i++) {
+      const idx = bin.charCodeAt(i);
+      if (idx === 255 || cols[idx] === undefined || Number.isNaN(cols[idx]!)) continue;
+      b.set(i % art.w, Math.floor(i / art.w), cols[idx]!);
+    }
+    const t = scene.textures.createCanvas(key, art.w, art.h)!;
+    b.blit(t.getContext());
+    t.refresh();
+    return true;
+  } catch { return false; }
 }

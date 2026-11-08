@@ -9,11 +9,15 @@ interface P {
   x: number; y: number; vx: number; vy: number;
   g: number; drag: number; life: number; max: number;
   frames: string[] | null; spin: boolean; fade: boolean;
+  /** Terrain behaviour: bounce off solids, die on contact, or ignore them. */
+  hit: 'bounce' | 'die' | null;
 }
 
 export class Pixels {
   private pool: P[] = [];
   private live: P[] = [];
+  /** Solid-terrain test in the layer's pixel coordinates (set by the level view). */
+  solid: ((x: number, y: number) => boolean) | null = null;
   constructor(private scene: Phaser.Scene, private layer: Phaser.GameObjects.Container, private cap = 260) {}
 
   private get(): P | null {
@@ -22,18 +26,18 @@ export class Pixels {
       if (this.live.length >= this.cap) return null;
       const img = this.scene.add.image(0, 0, ATLAS, 'p1').setOrigin(0.5);
       this.layer.add(img);
-      p = { img, x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 0, life: 0, max: 1, frames: null, spin: false, fade: true };
+      p = { img, x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 0, life: 0, max: 1, frames: null, spin: false, fade: true, hit: null };
     }
     p.img.setVisible(true).setAlpha(1).setAngle(0).setScale(1);
     this.live.push(p);
     return p;
   }
 
-  spawn(x: number, y: number, o: { frame?: string; frames?: string[]; tint?: number; vx?: number; vy?: number; g?: number; drag?: number; life?: number; spin?: boolean; fade?: boolean; alpha?: number }): void {
+  spawn(x: number, y: number, o: { frame?: string; frames?: string[]; tint?: number; vx?: number; vy?: number; g?: number; drag?: number; life?: number; spin?: boolean; fade?: boolean; alpha?: number; hit?: 'bounce' | 'die' }): void {
     const p = this.get();
     if (!p) return;
     p.x = x; p.y = y; p.vx = o.vx ?? 0; p.vy = o.vy ?? 0; p.g = o.g ?? 0; p.drag = o.drag ?? 0;
-    p.life = p.max = o.life ?? 0.6; p.frames = o.frames ?? null; p.spin = !!o.spin; p.fade = o.fade ?? true;
+    p.life = p.max = o.life ?? 0.6; p.frames = o.frames ?? null; p.spin = !!o.spin; p.fade = o.fade ?? true; p.hit = o.hit ?? null;
     p.img.setFrame(o.frames ? o.frames[0]! : o.frame ?? 'p1');
     p.img.setTint(o.tint ?? 0xffffff);
     p.img.setAlpha(o.alpha ?? 1);
@@ -47,7 +51,13 @@ export class Pixels {
       p.vy += p.g * dt;
       const d = Math.exp(-p.drag * dt);
       p.vx *= d; p.vy *= d;
-      p.x += p.vx * dt; p.y += p.vy * dt;
+      const nx = p.x + p.vx * dt, ny = p.y + p.vy * dt;
+      if (p.hit && this.solid?.(nx, ny)) {
+        if (p.hit === 'die') { p.life = 0; continue; }
+        // Bounce: reflect off whichever axis hit.
+        if (this.solid(nx, p.y)) p.vx *= -0.45; else p.x = nx;
+        if (this.solid(p.x, ny)) { p.vy *= -0.38; p.vx *= 0.7; if (Math.abs(p.vy) < 12) { p.vy = 0; p.g = 0; } } else p.y = ny;
+      } else { p.x = nx; p.y = ny; }
       p.img.setPosition(Math.round(p.x), Math.round(p.y));
       const k = 1 - p.life / p.max;
       if (p.frames) p.img.setFrame(p.frames[Math.min(p.frames.length - 1, Math.floor(k * p.frames.length))]!);
@@ -76,10 +86,10 @@ export class Pixels {
     for (let i = 0; i < n; i++) { const a = rng.range(0, Math.PI * 2), s = rng.range(30, 110); this.spawn(x, y, { frame: rng.next() < 0.3 ? 'p2' : 'p1', tint, vx: Math.cos(a) * s, vy: Math.sin(a) * s, g: 90, drag: 2, life: rng.range(0.2, 0.5) }); }
   }
   bones(x: number, y: number, n = 6): void {
-    for (let i = 0; i < n; i++) this.spawn(x + rng.range(-5, 5), y, { frame: 'bonebit', vx: rng.range(-60, 60), vy: rng.range(-110, -50), g: 320, life: rng.range(0.5, 0.9), spin: true });
+    for (let i = 0; i < n; i++) this.spawn(x + rng.range(-5, 5), y, { frame: 'bonebit', vx: rng.range(-60, 60), vy: rng.range(-110, -50), g: 320, life: rng.range(0.9, 1.4), spin: true, hit: 'bounce' });
   }
   debris(x: number, y: number, n = 8): void {
-    for (let i = 0; i < n; i++) this.spawn(x + rng.range(-7, 7), y, { frame: rng.next() < 0.5 ? 'debris' : 'p2', tint: rng.next() < 0.5 ? 0xffffff : 0x9a8fae, vx: rng.range(-70, 70), vy: rng.range(-120, -40), g: 360, life: rng.range(0.4, 0.8), spin: true });
+    for (let i = 0; i < n; i++) this.spawn(x + rng.range(-7, 7), y, { frame: rng.next() < 0.5 ? 'debris' : 'p2', tint: rng.next() < 0.5 ? 0xffffff : 0x9a8fae, vx: rng.range(-80, 80), vy: rng.range(-140, -40), g: 420, life: rng.range(0.8, 1.6), spin: true, hit: 'bounce' });
   }
   splash(x: number, y: number, n = 12): void {
     for (let i = 0; i < n; i++) this.spawn(x + rng.range(-5, 5), y, { frame: 'drop', vx: rng.range(-55, 55), vy: rng.range(-150, -60), g: 400, life: rng.range(0.4, 0.8) });

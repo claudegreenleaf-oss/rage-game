@@ -6,7 +6,10 @@ import { Overlay } from './scenes/Overlay';
 import { Title } from './scenes/Title';
 import { LevelSelect } from './scenes/LevelSelect';
 import { ActCard } from './scenes/ActCard';
-import { Game, pendingScript, type GameData } from './scenes/Game';
+import { Game, pendingScript, worldGameData, worldData, type GameData } from './scenes/Game';
+import { WorldMap } from './scenes/Map';
+import type { WorldDef } from './sim/campaign';
+import type { LevelData } from './sim/types';
 import { Hud } from './scenes/Hud';
 import { Pause } from './scenes/Pause';
 import { Credits } from './scenes/Credits';
@@ -29,11 +32,11 @@ const game = new Phaser.Game({
   render: { antialias: false, pixelArt: true, roundPixels: true, powerPreference: 'high-performance' },
   fps: { target: 60, smoothStep: false },
   input: { keyboard: true, mouse: true, touch: false, gamepad: false },
-  scene: [Boot, Backdrop, Title, LevelSelect, ActCard, Game, Hud, Pause, Credits, End, ...extraScenes, Overlay],
+  scene: [Boot, Backdrop, Title, LevelSelect, ActCard, Game, Hud, Pause, WorldMap, Credits, End, ...extraScenes, Overlay],
 });
 
 declare global {
-  interface Window { __dt?: { game: Phaser.Game; getWorld(): World | null; startLevel(id: string): void; runScript(src: string): void; armScript(id: string, src: string): void; goto(key: string, data?: object): void } }
+  interface Window { __dt?: { game: Phaser.Game; getWorld(): World | null; startLevel(id: string): void; runScript(src: string): void; armScript(id: string, src: string): void; goto(key: string, data?: object): void; startWorld(fresh?: boolean, def?: WorldDef, levels?: LevelData[]): boolean } }
 }
 
 window.__dt = {
@@ -61,6 +64,15 @@ window.__dt = {
   /** Arm a solution script to start on tick 1 of the next time level `id` starts. */
   armScript(id: string, src: string): void {
     pendingScript.set(id, unrle(compileScript(src)));
+  },
+  /** Start the connected world (or a test world passed in). */
+  startWorld(fresh = true, def?: WorldDef, levels?: LevelData[]): boolean {
+    const data = def && levels ? { def, levels } : worldData();
+    if (!data) return false;
+    for (const s of game.scene.getScenes(true)) if (!['Backdrop', 'Overlay'].includes(s.scene.key)) s.scene.stop();
+    const d = worldGameData(fresh, data);
+    setTimeout(() => d && game.scene.start('Game', d), 50);
+    return true;
   },
   runScript(src: string): void {
     const g = game.scene.getScene('Game') as Game | null;

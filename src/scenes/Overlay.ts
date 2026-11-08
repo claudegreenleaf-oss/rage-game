@@ -4,6 +4,8 @@ import { KEY } from '../render/pixel/pal';
 
 const W = 1280, H = 720, S = 4;
 
+export type WipeSide = 'left' | 'right' | 'top' | 'bottom' | 'door' | 'start';
+
 export class Overlay extends Phaser.Scene {
   private rt!: Phaser.GameObjects.RenderTexture;
   private hole!: Phaser.GameObjects.Graphics;
@@ -11,6 +13,8 @@ export class Overlay extends Phaser.Scene {
   private state = { r: 2000, x: W / 2, y: H / 2 };
   private active = false;
   private flashRect!: Phaser.GameObjects.Rectangle;
+  private wipeState = { p: 1, side: 'left' as WipeSide };
+  private wiping = false;
 
   constructor() { super('Overlay'); }
 
@@ -48,10 +52,21 @@ export class Overlay extends Phaser.Scene {
     this.tweens.add({ targets: this.flashRect, fillAlpha: 0, duration, ease: 'Stepped', easeParams: [3] });
   }
 
+  /** Room transition: start covered and reveal from the edge Pip came through, with a stepped edge. */
+  wipe(side: WipeSide, duration = 260): void {
+    this.scene.bringToTop();
+    if (side === 'door' || side === 'start') { this.irisOpen(W / 2, H / 2, duration + 200); return; }
+    this.tweens.killTweensOf(this.wipeState);
+    this.wipeState.side = side; this.wipeState.p = 0;
+    this.wiping = true;
+    this.tweens.add({ targets: this.wipeState, p: 1, duration, ease: 'Quad.easeOut', onComplete: () => { this.wiping = false; } });
+  }
+
   cover(): void { this.active = true; this.state.r = 0; }
 
   override update(): void {
-    this.rt.setVisible(this.active);
+    this.rt.setVisible(this.active || this.wiping);
+    if (this.wiping && !this.active) { this.drawWipe(); return; }
     if (!this.active) return;
     const x = Math.round(this.state.x / S), y = Math.round(this.state.y / S);
     const r = Math.max(0, Math.round(this.state.r / S));
@@ -63,5 +78,27 @@ export class Overlay extends Phaser.Scene {
       this.ring.clear().lineStyle(2, KEY.z!, 1).strokeCircle(x, y, r + 1).lineStyle(1, 0xffffff, 0.5).strokeCircle(x, y, r + 3);
       this.rt.draw(this.ring);
     }
+  }
+
+  private drawWipe(): void {
+    const w = W / S, h = H / S, { p, side } = this.wipeState;
+    this.rt.clear();
+    const g = this.hole.clear();
+    const horiz = side === 'left' || side === 'right';
+    const len = horiz ? w : h, across = horiz ? h : w;
+    const edge = p * (len + 24);
+    // Cover everything past the moving edge (with a stepped, 4-px-tall sawtooth for a pixel look).
+    g.fillStyle(KEY.k!, 1);
+    for (let i = 0; i < across; i += 4) {
+      const jag = ((i / 4) % 3) * 4 + (((i / 4) * 7) % 5);
+      const e = Math.round(edge - jag);
+      if (e >= len) continue;
+      const a = Math.max(0, e);
+      if (side === 'left') g.fillRect(a, i, w - a, 4);
+      else if (side === 'right') g.fillRect(0, i, w - a, 4);
+      else if (side === 'top') g.fillRect(i, a, 4, h - a);
+      else g.fillRect(i, 0, 4, h - a);
+    }
+    this.rt.draw(g);
   }
 }

@@ -1,19 +1,22 @@
-// Level select: 3 acts × 4 levels. Each card shows name, lock state and best (fewest) deaths.
+// Chambers (quick play): one row of four cards per act. Each card shows name, lock state and best (fewest) deaths.
 import Phaser from 'phaser';
 import { Menu, UI, type Focusable } from '../render/ui';
 import { ATLAS } from '../render/pixel/sprites';
 import { ptext } from '../render/pixel/font';
 import { panelTex } from '../render/pixel/uitex';
 import { ACT_PAL, KEY } from '../render/pixel/pal';
-import { ACTS, LEVELS } from '../levels';
+import { LEVELS } from '../levels';
 import { progress } from '../progress';
 import { audio } from '../audio/sfx';
 import { music } from '../audio/music';
-import { startLevel } from './Game';
+import { ACTS, startLevel } from './Game';
 import type { Backdrop } from './Backdrop';
 import type { Overlay } from './Overlay';
 
-const CW = 70, CH = 44; // UI pixels
+const ROWS = Math.max(1, Math.ceil(LEVELS.length / 4));
+const CW = 70, CH = ROWS > 3 ? 36 : 44; // UI pixels
+const ROW_GAP = ROWS > 3 ? 124 : 162;
+const ROW_Y = ROWS > 3 ? 180 : 214;
 
 class Card extends Phaser.GameObjects.Container implements Focusable {
   focused = false;
@@ -27,11 +30,11 @@ class Card extends Phaser.GameObjects.Container implements Focusable {
     const unlocked = this.unlocked;
     const best = lvl ? progress.get().best[lvl.id] : undefined;
     this.bg = scene.add.image(0, 0, panelTex(scene, CW, CH, unlocked ? 'paper' : 'slotEmpty')).setScale(UI);
-    this.band = scene.add.image(0, -(CH / 2 - 5) * UI, ATLAS, 'p1').setDisplaySize((CW - 4) * UI, 4 * UI).setTint(ACT_PAL[Math.floor(idx / 4) + 1]!.accent);
+    this.band = scene.add.image(0, -(CH / 2 - 5) * UI, ATLAS, 'p1').setDisplaySize((CW - 4) * UI, 4 * UI).setTint((ACT_PAL[Math.floor(idx / 4) + 1] ?? ACT_PAL[4]!).accent);
     this.add([this.bg, this.band]);
     this.add(ptext(scene, -(CW / 2 - 5) * UI, -(CH / 2 - 11) * UI, String(idx + 1).padStart(2, '0'), { scale: 3, color: unlocked ? KEY.k! : 0x9a8f9e, origin: [0, 0.5] }));
     if (lvl && unlocked) {
-      this.add(ptext(scene, 0, 2 * UI, lvl.name, { scale: 3, origin: [0.5, 0.5], align: 'center', wrap: (CW - 8) * UI }));
+      this.add(ptext(scene, 0, (CH > 40 ? 2 : 1) * UI, lvl.name, { scale: 3, origin: [0.5, 0.5], align: 'center', wrap: (CW - 8) * UI }));
       if (best !== undefined) {
         this.add(scene.add.image(-6 * UI, (CH / 2 - 8) * UI, ATLAS, 'skull').setScale(2));
         this.add(ptext(scene, -1 * UI, (CH / 2 - 8) * UI, `${best}`, { scale: 2, origin: [0, 0.5] }));
@@ -68,20 +71,22 @@ export class LevelSelect extends Phaser.Scene {
   create(): void {
     (this.scene.get('Backdrop') as Backdrop).setMood(0);
     music.play(0);
-    ptext(this, 640, 64, 'Pick your poison', { scale: 6, bold: true, color: 0xfff4e4, origin: [0.5, 0.5] });
+    ptext(this, 640, 64, 'Chambers', { scale: 6, bold: true, color: 0xfff4e4, origin: [0.5, 0.5] });
     const cards: Card[] = [];
-    ACTS.forEach((a, row) => {
-      const y = 214 + row * 162;
-      ptext(this, 148, y - 18, `ACT ${a.n}`, { scale: 2, outline: true, color: KEY.z!, origin: [0.5, 0.5] });
-      ptext(this, 148, y + 10, a.name, { scale: 3, outline: true, color: 0xfff4e4, origin: [0.5, 0.5], align: 'center', wrap: 180 });
+    for (let row = 0; row < ROWS; row++) {
+      const a = ACTS[row];
+      const y = ROW_Y + row * ROW_GAP;
+      ptext(this, 148, y - (ROWS > 3 ? 30 : 18), `ACT ${a?.n ?? row + 1}`, { scale: 2, outline: true, color: KEY.z!, origin: [0.5, 0.5] });
+      if (a) ptext(this, 148, y + (ROWS > 3 ? 4 : 10), a.name, { scale: 3, outline: true, color: 0xfff4e4, origin: [0.5, 0.5], align: 'center', wrap: 240 });
       for (let col = 0; col < 4; col++) {
         const idx = row * 4 + col;
+        if (idx >= LEVELS.length) break;
         const c = new Card(this, 390 + col * 234, y, idx, (i) => this.pick(i));
         c.setAlpha(0);
         this.tweens.add({ targets: c, alpha: 1, duration: 240, delay: 60 + idx * 35, ease: 'Stepped', easeParams: [3] });
         cards.push(c);
       }
-    });
+    }
     const menu = new Menu(this, cards, 4);
     menu.focus(Math.max(0, Math.min(progress.get().unlocked, LEVELS.length - 1)));
     const back = ptext(this, 28, 690, '← esc  back', { scale: 3, outline: true, color: 0xfff4e4, origin: [0, 0.5] }).setInteractive({ useHandCursor: true });

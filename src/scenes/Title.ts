@@ -14,7 +14,7 @@ import { music } from '../audio/music';
 import { progress } from '../progress';
 import { LEVELS } from '../levels';
 import { decodeLevel } from '../editor/share';
-import { startLevel, type GameData } from './Game';
+import { startLevel, startWorld, worldData, type GameData } from './Game';
 import { promptModal } from './dom';
 import type { Backdrop } from './Backdrop';
 import type { Overlay } from './Overlay';
@@ -143,20 +143,34 @@ export class Title extends Phaser.Scene {
     this.world.add(this.pip);
 
     // Menu.
-    const unlocked = progress.editorUnlocked();
     const editorScene = !!this.game.scene.keys['Editor'];
+    const wd = worldData();
+    const save = wd ? progress.worldSave() : null;
+    const top: Button[] = [];
+    if (wd) {
+      // The connected world: Continue / New game, with the chambers as quick play.
+      top.push(new Button(this, W / 2, 330, save ? 'Continue' : 'New game', () => this.go(() => startWorld(this, !save, wd)), { color: C.hazard, w: 300, h: 66, size: 30 }));
+      if (save) {
+        let armed = false;
+        const fresh: Button = new Button(this, W / 2 - 104, 414, 'New game', () => {
+          if (!armed) { armed = true; fresh.setText('Erase save?'); this.time.delayedCall(2500, () => { armed = false; fresh.setText('New game'); }); return; }
+          this.go(() => startWorld(this, true, wd));
+        }, { color: C.paper, w: 196 });
+        top.push(fresh, new Button(this, W / 2 + 104, 414, 'Chambers', () => this.go(() => this.scene.start('LevelSelect')), { w: 196 }));
+      } else top.push(new Button(this, W / 2, 414, 'Chambers', () => this.go(() => this.scene.start('LevelSelect'))));
+    } else {
+      top.push(
+        new Button(this, W / 2, 330, progress.get().unlocked > 0 ? 'Continue' : 'Play', () => this.play(), { color: C.hazard, w: 300, h: 66, size: 30 }),
+        new Button(this, W / 2, 414, 'Chambers', () => this.go(() => this.scene.start('LevelSelect'))),
+      );
+    }
     const buttons = [
-      new Button(this, W / 2, 330, progress.get().unlocked > 0 ? 'Continue' : 'Play', () => this.play(), { color: C.hazard, w: 300, h: 66, size: 30 }),
-      new Button(this, W / 2, 414, 'Levels', () => this.go(() => this.scene.start('LevelSelect'))),
-      new Button(this, W / 2, 486, unlocked ? 'Editor' : 'Editor', () => this.openEditor(editorScene), { locked: !unlocked, color: C.rot }),
+      ...top,
+      new Button(this, W / 2, 486, 'Editor', () => this.openEditor(editorScene), { color: C.rot }),
       new Button(this, W / 2, 558, 'Paste code', () => void this.paste(), { color: C.paper }),
     ];
     buttons.forEach((b, i) => { b.setAlpha(0); this.tweens.add({ targets: b, alpha: 1, duration: 300, delay: 500 + i * 90, ease: 'Stepped', easeParams: [3] }); });
     new Menu(this, buttons);
-    if (!unlocked) {
-      this.add.image(W / 2 + 112, 486 - 3, ATLAS, 'lock').setScale(UI);
-      ptext(this, W / 2 + 150, 486 - 3, 'beat act 1', { scale: 2, outline: true, color: 0xfff4e4, origin: [0, 0.5] });
-    }
 
     this.speaker = this.add.image(W - 40, 34, ATLAS, 'speaker').setScale(UI).setInteractive({ useHandCursor: true });
     this.speaker.on('pointerdown', () => { void audio.unlock(); audio.toggleMute(); });

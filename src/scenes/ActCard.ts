@@ -10,11 +10,11 @@ import { LEVELS, type ActInfo } from '../levels';
 import { audio } from '../audio/sfx';
 import { music } from '../audio/music';
 import { groundTexture } from './Title';
-import type { GameData } from './Game';
+import { musicFor, type GameData } from './Game';
 import type { Backdrop } from './Backdrop';
 import type { Overlay } from './Overlay';
 
-const NUM = ['ZERO', 'ONE', 'TWO', 'THREE'];
+const NUM = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'];
 const S = 4;
 
 export class ActCard extends Phaser.Scene {
@@ -29,8 +29,8 @@ export class ActCard extends Phaser.Scene {
 
   create(): void {
     (this.scene.get('Backdrop') as Backdrop).setMood(this.act.n);
-    music.play(this.act.n);
-    const pal = ACT_PAL[this.act.n]!;
+    music.play(musicFor(LEVELS[this.index] ?? null, this.act.n));
+    const pal = ACT_PAL[this.act.n] ?? ACT_PAL[3]!;
     groundTexture(this, 'titleGround', 21);
     this.add.image(0, 640 - 3 * S, 'titleGround').setOrigin(0).setScale(S);
 
@@ -40,7 +40,7 @@ export class ActCard extends Phaser.Scene {
     this.tweens.add({ targets: small, alpha: 1, duration: 300, delay: 450, ease: 'Stepped', easeParams: [3] });
 
     const word = this.act.name.toUpperCase();
-    const scale = word.length > 8 ? 7 : 9;
+    const scale = word.length > 5 ? 7 : 9;
     const adv = 8 * scale;
     let x = 640 - ((word.length - 1) * adv + 7 * scale) / 2;
     [...word].forEach((ch, i) => {

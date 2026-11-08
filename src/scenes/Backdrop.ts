@@ -39,7 +39,37 @@ function base(b: Buf, pal: ActPal, act: number): Array<{ x: number; y: number; k
     p.set(x, y, c);
   }
   const lights: Array<{ x: number; y: number; kind: 'flicker' | 'pulse'; color: number }> = [];
-  if (act !== 3) {
+  if (act === 4) {
+    // The core: a cracked reactor column glowing from within, broken containment rings, heat from below.
+    for (let y = 0; y < b.h; y++) for (let x = 0; x < b.w; x++) { const t = y / b.h; if (t > 0.55 && (x * 3 + y * 7) % 5 < (t - 0.55) * 9) p.set(x, y, mix(b.get(x, y), pal.glow, 0.12 + (t - 0.55) * 0.25)); }
+    const cx = Math.floor(b.w / 2), rw = 44;
+    for (let y = 6; y < b.h; y++) for (let i = -rw / 2; i < rw / 2; i++) {
+      const edge = Math.abs(i) > rw / 2 - 3;
+      const shade = 1 - Math.abs(i) / (rw / 2);
+      p.set(cx + i, y, edge ? pal.far : mix(pal.deep2, pal.farHi, shade * 0.5));
+    }
+    // The glowing seam down the middle, split by cracks.
+    for (let y = 10; y < b.h; y++) {
+      const wob = Math.round(Math.sin(y * 0.21) * 1.5);
+      for (let i = -3; i <= 3; i++) p.set(cx + i + wob, y, mix(pal.glow, 0xffffff, i === 0 ? 0.55 : Math.abs(i) < 2 ? 0.2 : 0), Math.abs(i) === 3 ? 0.5 : 1);
+      if (hash2(y, 0, 41) < 0.08) { let x = cx + wob, dir = hash2(y, 1, 41) < 0.5 ? -1 : 1; for (let k = 0; k < 14; k++) { x += dir; p.set(x, y + (k >> 2), pal.glow, 0.8); } }
+    }
+    // Containment rings, two of them snapped open.
+    for (const [ry, broken] of [[34, false], [70, true], [108, true], [146, false]] as const) {
+      for (let i = -rw / 2 - 6; i < rw / 2 + 6; i++) {
+        if (broken && i > 4 && i < 16) continue;
+        p.rect(cx + i, ry, 1, 5, i % 6 === 0 ? pal.farHi : pal.mid);
+        p.set(cx + i, ry, pal.farHi);
+      }
+      lights.push({ x: cx - rw / 2 - 4, y: ry + 2, kind: 'pulse', color: pal.light });
+    }
+    lights.push({ x: cx, y: 60, kind: 'pulse', color: pal.glow }, { x: cx, y: 130, kind: 'pulse', color: pal.glow });
+    // Heavy roots forced through the ceiling and down the walls.
+    for (let k = 0; k < 16; k++) {
+      let rx = Math.floor(hash2(k, 2, 42) * b.w); const len = 40 + Math.floor(hash2(k, 3, 42) * 120), th = 1 + Math.floor(hash2(k, 4, 42) * 3);
+      for (let j = 0; j < len; j++) { for (let t = 0; t < th; t++) p.set(rx + t, j, t === 0 ? mix(pal.root, 0xffffff, 0.15) : pal.root); if (j % 5 === 0) rx += hash2(k, j, 43) < 0.5 ? -1 : 1; }
+    }
+  } else if (act !== 3) {
     // Tall windows, overgrown, throwing light shafts down and to the right.
     for (const wx of [40, 150, 260]) {
       const wy = 18, ww = 28, wh = 46;
@@ -132,8 +162,9 @@ function mid(b: Buf, pal: ActPal, act: number): void {
   // Moss mounds along the floor, roots in Act 3, a flood line in Act 2.
   for (let i = 0; i < b.w; i++) { const y = h - 4 - Math.round(Math.sin(i * 0.09) * 2 + hash2(i, 5, 33) * 2); for (let j = y; j < h; j++) p.set(i, j, j === y ? pal.moss : mix(pal.mossDark, col, 0.4)); }
   if (act === 2) for (let i = 0; i < b.w; i++) { for (let j = h - 9; j < h; j++) p.set(i, j, j === h - 9 ? 0x6fd4c2 : mix(0x1f6d68, col, 0.3), 0.85); }
-  if (act === 3) {
-    for (let k = 0; k < 10; k++) { let rx = Math.floor(hash2(k, 6, 34) * b.w); for (let j = 0; j < 30 + hash2(k, 7, 34) * 40; j++) { p.set(rx, j, pal.root); if (j % 4 === 0) rx += hash2(k, j, 35) < 0.5 ? -1 : 1; } }
+  if (act === 4) for (let i = 0; i < b.w; i++) { const y = h - 3 - Math.round(hash2(i, 9, 37) * 2); for (let j = y; j < h; j++) p.set(i, j, mix(col, pal.glow, 0.35 + (j - y) * 0.15)); }
+  if (act >= 3) {
+    for (let k = 0; k < (act === 4 ? 18 : 10); k++) { let rx = Math.floor(hash2(k, 6, 34) * b.w); for (let j = 0; j < 30 + hash2(k, 7, 34) * 40; j++) { p.set(rx, j, pal.root); if (j % 4 === 0) rx += hash2(k, j, 35) < 0.5 ? -1 : 1; } }
     for (let k = 0; k < 8; k++) { const bx = Math.floor(hash2(k, 8, 36) * b.w); p.rect(bx, h - 6, 5, 1, KEY.o!); p.set(bx - 1, h - 7, KEY.o!); p.set(bx + 5, h - 7, KEY.o!); }
   }
 }

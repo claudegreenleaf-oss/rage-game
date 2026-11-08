@@ -96,6 +96,15 @@ export const ACT_PAL: Record<number, ActPal> = {
     deep: 0x2b2340, deep2: 0x221b33, far: 0x3a2f52, farHi: 0x4f426b, mid: 0x1c1629, midHi: 0x2f2645, glow: 0xffb03f, shaft: 0xc8a2ff, mote: 0xffd59a,
     light: 0xff4d6d, accent: 0xb48cd1,
   },
+  // Act 4 The Core: the reactor heart. Near-black plating, thick roots, cracked containment, a sick
+  // orange-red reactor glow from below.
+  4: {
+    plate: 0x2c2a33, plateDark: 0x15131a, plateLight: 0x4a4552, plateHi: 0x7a6f78, trim: 0xff6a2a,
+    moss: 0x5f7a46, mossDark: 0x384d2e, mossLight: 0x8aa564, root: 0x6b3f2a, stain: 0x5a4038,
+    wall: 0x7d6e72, wallDark: 0x655759, wallHi: 0x95858a,
+    deep: 0x1f1418, deep2: 0x170e12, far: 0x2e1c1f, farHi: 0x47292a, mid: 0x120a0d, midHi: 0x2a1617, glow: 0xff7a2e, shaft: 0xff9a5a, mote: 0xffb27a,
+    light: 0xff3b2f, accent: 0xff7a2e,
+  },
 };
 
 export const actPal = (act: number | undefined): ActPal => ACT_PAL[act ?? 1] ?? ACT_PAL[1]!;

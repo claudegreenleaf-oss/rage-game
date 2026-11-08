@@ -8,9 +8,16 @@ export interface Progress {
   beaten: Record<string, boolean>;
   totalDeaths: number;
   settings: { muted: boolean };
+  /** The connected-world run (null until a new game starts). */
+  world: WorldSave | null;
+  /** HUD tips already shown (each appears once per save). */
+  tips: string[];
 }
 
-const fresh = (): Progress => ({ unlocked: 0, best: {}, beaten: {}, totalDeaths: 0, settings: { muted: false } });
+/** Mirrors the sim's CampaignSave (kept structural so progress.ts has no sim dependency). */
+export interface WorldSave { room: string; collected: string[]; cleared: string[]; visited: string[]; deaths: number }
+
+const fresh = (): Progress => ({ unlocked: 0, best: {}, beaten: {}, totalDeaths: 0, settings: { muted: false }, world: null, tips: [] });
 
 let state: Progress = load();
 
@@ -19,7 +26,7 @@ function load(): Progress {
     const raw = globalThis.localStorage?.getItem(KEY);
     if (!raw) return fresh();
     const p = JSON.parse(raw) as Partial<Progress>;
-    return { ...fresh(), ...p, settings: { ...fresh().settings, ...(p.settings ?? {}) } };
+    return { ...fresh(), ...p, tips: Array.isArray(p.tips) ? p.tips : [], world: p.world ?? null, settings: { ...fresh().settings, ...(p.settings ?? {}) } };
   } catch {
     return fresh();
   }
@@ -42,8 +49,19 @@ export const progress = {
     save();
     return { newBest };
   },
+  /** The editor is open to everyone. */
   editorUnlocked(): boolean {
-    return !!state.beaten['L04'] || devEditor();
+    return true;
+  },
+  /** The saved world run, if any. */
+  worldSave(): WorldSave | null { return state.world; },
+  setWorldSave(s: WorldSave | null): void { state.world = s; if (!s) state.tips = []; save(); },
+  /** True the first time a tip is asked for in this save; false afterwards. */
+  tipOnce(id: string): boolean {
+    if (state.tips.includes(id)) return false;
+    state.tips = [...state.tips, id];
+    save();
+    return true;
   },
   get muted(): boolean { return state.settings.muted; },
   setMuted(m: boolean): void { state.settings.muted = m; save(); },
@@ -53,5 +71,4 @@ export const progress = {
 function query(): URLSearchParams {
   try { return new URLSearchParams(globalThis.location?.search ?? ''); } catch { return new URLSearchParams(); }
 }
-function devEditor(): boolean { return query().has('editor'); }
 function devUnlock(): boolean { return query().has('unlock'); }

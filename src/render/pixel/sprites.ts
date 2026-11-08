@@ -128,6 +128,10 @@ function pipFrames(): Record<string, string[]> {
     push: withFeet(lean(base, 1), FEET.a),
     pull: withFeet(setRows(lean(base, -1), LOOK_BACK), FEET.c),
     dead: setRows(base, DEAD),
+    // Hanging from a vine: paws up, feet dangling.
+    hang: setRows(shiftRows(base, 1, 15, 1), { 0: '...kk.kk.kk.....', 1: '...kpkkpkpk.....', 14: '.....kpk.kpk....', 15: '.....kk...kk....' }),
+    // Sliding down a wall (wall on the right): squished against it, one paw on the wall.
+    wall: withFeet(setRows(lean(base, 1), { 8: '..kpbbpkkppkkbkk', 9: '..kppppppppnppkp' }), FEET.c),
   };
 }
 
@@ -428,6 +432,111 @@ kkkkkkkkkkkkkkkk
   ];
   PUFFS.forEach((r, i) => def(`puff${i}`, r[0]!.length, r.length, (ctx) => new Pen(ctx).ascii(0, 0, r)));
 
+  // World objects.
+  def('crate', 16, 16, (ctx) => new Pen(ctx).ascii(0, 0, rowsOf(`
+kkkkkkkkkkkkkkkk
+klllllllllllllMk
+klkkkkkkkkkkklMk
+klkmmmmmmmmmklMk
+klkmzkzkzkzmklMk
+klkmmmmmmmmmklMk
+klkmmmkkkmmmklMk
+klkmmkWWWkmmklMk
+klkmmkWrWkmmklMk
+klkmmkWWWkmmklMk
+klkmmmkkkmmmklMk
+klkmmmmmmmmmklMk
+klkkkkkkkkkkklMk
+klllllllllllllMk
+kMMMMMMMMMMMMMMk
+kkkkkkkkkkkkkkkk
+`)));
+  for (let f = 0; f < 2; f++) def(`bench${f}`, 16, 16, (ctx) => {
+    const sc = f ? 'j' : 'K', hi = f ? 'w' : 'M';
+    new Pen(ctx).ascii(0, 0, rowsOf(`
+................
+..kkkkkkkkkkkk..
+..kMMMMMMMMMMk..
+..kMkkkkkkkkMk..
+..kMk${sc}${sc}${sc}${sc}${sc}${sc}kMk..
+..kMk${sc}${hi}${sc}${sc}${sc}${sc}kMk..
+..kMk${sc}${sc}${sc}${sc}${sc}${sc}kMk..
+..kMkkkkkkkkMk..
+..kMMMMMMMMMMk..
+..kkkkkkkkkkkk..
+.....kMMMMk.....
+...kkkkkkkkkk...
+..kllllllllllk..
+..kmz${f ? 'j' : 'R'}mmmmmmmk..
+..kMMMMMMMMMMk..
+..kkkkkkkkkkkk..
+`));
+  });
+  def('note', 10, 12, (ctx) => new Pen(ctx).ascii(0, 0, rowsOf(`
+...kkkk...
+.kkkMMkkk.
+kWWkkkkWWk
+kWWWWWWWWk
+kWkkkkkWWk
+kWWWWWWWWk
+kWkkkkkkWk
+kWWWWWWWWk
+kWkkkkWWWk
+kWWWWWWWWk
+kWWWWWWWOk
+kkkkkkkkkk
+`)));
+  def('jar', 10, 13, (ctx) => new Pen(ctx).ascii(0, 0, rowsOf(`
+..kkkkkk..
+..kMMMMk..
+.kkkkkkkk.
+.kWaaaack.
+kWacccccCk
+kWaccgccCk
+kWacgggcCk
+kWacggccCk
+kWaccccCCk
+kWccccCCCk
+.kCCCCCCk.
+.kkkkkkkk.
+..........
+`)));
+  def('lamp', 10, 6, (ctx) => new Pen(ctx).ascii(0, 0, ['..kkkkkk..', '.kMMMMMMk.', 'kMMMMMMMMk', 'kzzzzzzzzk', '.kwwwwwwk.', '..kkkkkk..']));
+  def('arrow', 7, 7, (ctx) => new Pen(ctx).ascii(0, 0, ['..k....', '..kk...', 'kkkwk..', 'kwwwwk.', 'kkkwk..', '..kk...', '..k....']));
+  def('vineSeg', 2, 6, (ctx) => new Pen(ctx).ascii(0, 0, ['gG', 'Gg', 'gG', 'fG', 'gG', 'Gg']));
+  def('leaf', 4, 3, (ctx) => new Pen(ctx).ascii(0, 0, ['.hg.', 'hggf', '.gf.']));
+  def('cableSeg', 2, 6, (ctx) => new Pen(ctx).ascii(0, 0, ['kK', 'Kk', 'kK', 'kK', 'Kk', 'kK']));
+  def('ragHead', 10, 9, (ctx) => new Pen(ctx).ascii(0, 0, ['.kk...kk.', 'kbbk.kbbk', 'kpppppppk', 'kpkpkpkpk', 'kppkppkpk', 'kpkpkpkpk', 'kpbpppbpk', '.kpppppk.', '..kkkkk..'].map((r) => r.padEnd(10, '.'))));
+  def('ragLimb', 3, 3, (ctx) => new Pen(ctx).ascii(0, 0, ['kkk', 'kpk', 'kkk']));
+  // Soft light brush (white, alpha falls off; dithered rings at the rim) for the darkness layer.
+  def('light', 48, 48, (ctx) => {
+    const p = new Pen(ctx);
+    for (let j = 0; j < 48; j++) for (let i = 0; i < 48; i++) {
+      const d = Math.hypot(i - 23.5, j - 23.5) / 24;
+      if (d >= 1) continue;
+      const a = d < 0.45 ? 1 : d < 0.7 ? 0.7 : d < 0.85 ? ((i + j) % 2 ? 0.45 : 0.25) : (i + j) % 2 ? 0.18 : 0;
+      if (a > 0) p.px(i, j, 0xffffff, a);
+    }
+  });
+  // Fog band (tiles horizontally; dithered so it stays pixel-crisp).
+  def('fog', 64, 20, (ctx) => {
+    const p = new Pen(ctx);
+    for (let j = 0; j < 20; j++) for (let i = 0; i < 64; i++) {
+      const v = Math.sin((i / 64) * Math.PI * 2 * 2 + j * 0.3) * 0.5 + 0.5;
+      const edge = 1 - Math.abs(j - 9.5) / 10;
+      const a = edge * (0.25 + v * 0.35);
+      if ((i * 7 + j * 3) % 5 < Math.round(a * 5)) p.px(i, j, 0xffffff, 0.55);
+    }
+  });
+  // Water caustics (tiles; drawn additively under the surface).
+  for (let f = 0; f < 2; f++) def(`caustic${f}`, 16, 16, (ctx) => {
+    const p = new Pen(ctx);
+    for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) {
+      const v = Math.sin((i + f * 3) * 0.8 + Math.sin(j * 0.6) * 2) + Math.sin((j + f * 2) * 0.7 + Math.cos(i * 0.5) * 2);
+      if (v > 1.3) p.px(i, j, 0xc8fff0, 0.5);
+    }
+  });
+
   // UI icons.
   def('skull', 9, 9, (ctx) => new Pen(ctx).ascii(0, 0, rowsOf(`
 ..kkkkk..
@@ -488,6 +597,8 @@ kOOOOOOOOOk
 kOOOOOOOOOk
 kkkkkkkkkkk
 `)));
+  def('iconNote', 7, 8, (ctx) => new Pen(ctx).ascii(0, 0, ['.kkkkk.', 'kWWWWWk', 'kWkkkWk', 'kWWWWWk', 'kWkkWWk', 'kWWWWWk', 'kWWWWOk', 'kkkkkkk']));
+  def('iconJar', 7, 8, (ctx) => new Pen(ctx).ascii(0, 0, ['.kkkkk.', '.kMMMk.', 'kkkkkkk', 'kaccccK', 'kacgccK', 'kaccccK', 'kcCCCCk', '.kkkkk.']));
   def('heart', 7, 6, (ctx) => new Pen(ctx).ascii(0, 0, ['.kk.kk.', 'krrkyrk', 'krrrrrk', '.krrrk.', '..krk..', '...k...']));
 }
 
