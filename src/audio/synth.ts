@@ -2,7 +2,7 @@
 // bell voices, synthesized drums, ping-pong echo. Renders a song to a seamless stereo loop.
 // Runs inside a Web Worker in the browser and in Node for offline checks.
 
-export type Inst = 'pulse12' | 'pulse25' | 'pulse50' | 'tri' | 'xylo' | 'bell' | 'pluck' | 'drums';
+export type Inst = 'pulse12' | 'pulse25' | 'pulse50' | 'tri' | 'xylo' | 'bell' | 'pluck' | 'pad' | 'sine' | 'drums';
 
 /** A note: start beat, length in beats, MIDI pitch. For drum tracks the "pitch" is a drum code (see DRUMS). */
 export type Ev = [start: number, len: number, pitch: number];
@@ -23,6 +23,8 @@ export interface Track {
   gate?: number;
   /** Semitone transposition. */
   transpose?: number;
+  /** One-pole low-pass cutoff (Hz) on the whole track, for a soft, rounded tone. */
+  lp?: number;
 }
 
 export interface Song {
@@ -151,6 +153,8 @@ const DEFAULT_ENV: Record<Exclude<Inst, 'drums'>, [number, number, number, numbe
   pulse50: [0.005, 0.12, 0.6, 0.06],
   tri: [0.004, 0.08, 0.8, 0.05],
   xylo: [0.001, 0.0, 1, 0.0],
+  pad: [0.25, 0.3, 0.75, 0.6],
+  sine: [0.01, 0.1, 0.8, 0.12],
   bell: [0.002, 0.0, 1, 0.0],
   pluck: [0.002, 0.0, 1, 0.0],
 };
@@ -199,6 +203,8 @@ export function* renderSong(song: Song, sr: number): Generator<void, Rendered> {
           case 'pulse25': v = pulse(ph, dt, 0.25); break;
           case 'pulse50': v = pulse(ph, dt, 0.5) * 0.85; break;
           case 'tri': v = tri(ph); break;
+          case 'sine': v = Math.sin(2 * Math.PI * ph); break;
+          case 'pad': ph2 = (ph2 + (f * 1.004) / sr) % 1; v = (tri(ph) + tri(ph2) + Math.sin(2 * Math.PI * ph * 0.5)) * 0.4; break;
           case 'xylo': ph2 = (ph2 + (f * 3.93) / sr) % 1; v = Math.sin(2 * Math.PI * ph) + 0.45 * Math.sin(2 * Math.PI * ph2) * Math.exp(-t * 30); break;
           case 'bell': ph2 = (ph2 + (f * 2.01) / sr) % 1; v = Math.sin(2 * Math.PI * ph) * 0.8 + 0.35 * Math.sin(2 * Math.PI * ph2) * Math.exp(-t * 6); break;
           default: v = pulse(ph, dt, 0.3) * 0.8; break; // pluck
@@ -214,6 +220,11 @@ export function* renderSong(song: Song, sr: number): Generator<void, Rendered> {
         buf[(start + i) % total]! += v * env * track.vol;
       }
       if (++work % 24 === 0) yield;
+    }
+    if (track.lp) {
+      const a = 1 - Math.exp((-2 * Math.PI * track.lp) / sr);
+      let z = 0;
+      for (let pass = 0; pass < 2; pass++) for (let i = 0; i < total; i++) { z += a * (buf[i]! - z); if (pass === 1) buf[i] = z; }
     }
     // Pan into the stereo mix, plus an optional circular ping-pong echo (stays seamless).
     for (let i = 0; i < total; i++) { left[i]! += buf[i]! * gl; right[i]! += buf[i]! * gr; }

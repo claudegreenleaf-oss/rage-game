@@ -1,11 +1,10 @@
-// Renders music loops off the main thread.
-import { renderNow } from './synth';
-import { FANFARE, SONGS } from './songs';
+// Renders music off the main thread.
+import { renderJobNow, type Job } from './render';
 
-self.onmessage = (e: MessageEvent<{ id: number | 'fanfare'; sr: number }>) => {
-  const { id, sr } = e.data;
-  const song = id === 'fanfare' ? FANFARE : SONGS[id];
-  if (!song) return;
-  const r = renderNow(song, sr);
-  (self as unknown as Worker).postMessage({ id, left: r.left, right: r.right, rms: r.rms }, [r.left.buffer, r.right.buffer]);
+self.onmessage = (e: MessageEvent<{ key: string; job: Job; sr: number }>) => {
+  const { key, job, sr } = e.data;
+  let r = null;
+  try { r = renderJobNow(job, sr); } catch { r = null; }
+  if (!r) { (self as unknown as Worker).postMessage({ key, failed: true }); return; }
+  (self as unknown as Worker).postMessage({ key, left: r.left, right: r.right, rms: r.rms }, [r.left.buffer, r.right.buffer]);
 };

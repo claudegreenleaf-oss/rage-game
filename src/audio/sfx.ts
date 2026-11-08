@@ -6,6 +6,8 @@
 import { progress } from '../progress';
 import { SFX_DEFS, buildSfx, type SfxDef } from './sfxdefs';
 
+export { SFX_NAMES, SFX_INFO } from './sfxdefs';
+
 type ZzfxModule = typeof import('zzfx');
 
 let Z: ZzfxModule | null = null;
@@ -18,8 +20,11 @@ let bus: Bus | null = null;
 const buffers = new Map<string, AudioBuffer>();
 const lastPlayed = new Map<string, number>();
 let jingleBuf: AudioBuffer | null = null;
+/** Per-level ZzFX overrides by sound name, and their rendered buffers. */
+let overrides: Record<string, number[]> | null = null;
+const overrideBufs = new Map<string, AudioBuffer>();
 
-const SFX_LEVEL = 0.85;
+const SFX_LEVEL = 0.9;
 const MASTER_LEVEL = 0.95;
 
 /** Legacy table kept for callers that read it: the ZzFX parameters of each effect's first layer. */
@@ -50,6 +55,32 @@ function toBuffer(ctx: AudioContext, chans: Float32Array[], sr: number): AudioBu
   const b = ctx.createBuffer(chans.length, chans[0]!.length, sr);
   chans.forEach((c, i) => b.copyToChannel(c as Float32Array<ArrayBuffer>, i));
   return b;
+}
+
+/** Raw ZzFX params as a buffer (peak-normalised so previews and overrides sit at a sane level). */
+function buildRaw(params: number[], peak = 0.45): AudioBuffer | null {
+  if (!Z || !bus) return null;
+  const sr = Z.ZZFX.sampleRate;
+  const p = params.map((x) => (Number.isFinite(x) ? x : 0)).slice(0, 21);
+  try {
+    const s = buildSfx({ layers: [{ p }], peak: Math.min(peak, Math.max(0.05, Math.abs(p[0] ?? 1)) * peak) }, Z.ZZFX.buildSamples.bind(Z.ZZFX), sr);
+    if (s.length > sr * 6) return null; // guard against runaway params
+    return toBuffer(bus.ctx, [s], sr);
+  } catch { return null; }
+}
+
+function playBuffer(buf: AudioBuffer, pitch: number, vol: number): AudioBufferSourceNode | null {
+  if (!bus) return null;
+  try {
+    const src = bus.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = Math.max(0.25, Math.min(4, pitch));
+    const g = bus.ctx.createGain();
+    g.gain.value = Math.max(0, Math.min(2, vol));
+    src.connect(g).connect(bus.sfx);
+    src.start();
+    return src;
+  } catch { return null; }
 }
 
 function buildOne(name: string, def: SfxDef): AudioBuffer | null {
@@ -108,25 +139,37 @@ export const audio = {
     const key = `${name}@${pitch.toFixed(2)}`;
     if (now - (lastPlayed.get(key) ?? -1) < 0.025) return;
     lastPlayed.set(key, now);
-    const buf = buffers.get(name) ?? buildOne(name, def);
+    const ov = overrides?.[name];
+    let buf: AudioBuffer | null | undefined;
+    if (ov) {
+      const k = `${name}:${ov.join(',')}`;
+      buf = overrideBufs.get(k) ?? buildRaw(ov, def.peak);
+      if (buf) overrideBufs.set(k, buf);
+    }
+    buf ??= buffers.get(name) ?? buildOne(name, def);
     if (!buf) return;
-    try {
-      const src = bus.ctx.createBufferSource();
-      src.buffer = buf;
-      src.playbackRate.value = Math.max(0.25, Math.min(4, pitch));
-      const g = bus.ctx.createGain();
-      g.gain.value = Math.max(0, Math.min(2, vol));
-      src.connect(g).connect(bus.sfx);
-      src.start();
-      if (def.duck) audio.duck(def.duck, buf.duration / src.playbackRate.value);
-    } catch { /* ignore */ }
+    const src = playBuffer(buf, pitch, vol);
+    if (src && def.duck) audio.duck(def.duck, buf.duration / src.playbackRate.value);
+  },
+
+  /** Play raw ZzFX params right away (sound-designer preview). Unlocks audio if needed. */
+  playParams(params: number[], vol = 1): void {
+    if (muted) return;
+    const go = () => { const b = buildRaw(params); if (b) playBuffer(b, 1, vol); };
+    if (bus) go(); else void audio.unlock().then(go);
+  },
+
+  /** Per-level overrides by sound name (ZzFX params). Pass undefined to clear them. */
+  setLevelOverrides(sfx?: Record<string, number[]>): void {
+    overrides = sfx && Object.keys(sfx).length ? { ...sfx } : null;
+    overrideBufs.clear();
   },
 
   /** Short level-complete fanfare (rendered with the music synth). */
   jingle(): void {
     if (muted || !bus) return;
     if (!jingleBuf) {
-      void import('./music').then((m) => m.renderFanfare(bus!.ctx)).then((b) => { jingleBuf = b; audio.jingle(); }).catch(() => {});
+      void import('./music').then((m) => m.renderFanfare()).then((b) => { if (b) { jingleBuf = b; audio.jingle(); } }).catch(() => {});
       return;
     }
     const src = bus.ctx.createBufferSource();
