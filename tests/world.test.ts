@@ -234,3 +234,61 @@ describe('level rules', () => {
     expect(w.corpses.every((c) => c.stage === 0)).toBe(true);
   });
 });
+
+describe('flashlight and light sensors', () => {
+  const ROOM = `
+################
+#..............#
+#..............#
+#S.........#...#
+################
+`;
+  it('a sensor is pressed only while Pip faces it with a clear line of sight, and opens its gate', () => {
+    const l = mk(ROOM, { objects: [{ type: 'sensor', id: 'eye', x: 8, y: 3 }, { type: 'gate', id: 'g', x: 13, y: 1, h: 3, plate: 'eye' }] });
+    const w = new World(l);
+    hold(w, 0, 3);
+    const s = w.obj.plates.find((p) => p.id === 'eye')!;
+    expect(w.pip.facing).toBe(1);
+    expect(s.pressed).toBe(true); // facing right, 7 tiles away
+    hold(w, Btn.Left, 2); hold(w, 0, 10);
+    expect(s.pressed).toBe(false); // looking away
+    hold(w, Btn.Right, 1); hold(w, 0, 20);
+    expect(s.pressed).toBe(true);
+    expect(w.obj.gates[0]!.open).toBeGreaterThan(0);
+  });
+  it('walls block the beam', () => {
+    const l = mk(ROOM, { objects: [{ type: 'sensor', id: 'eye', x: 13, y: 3 }] });
+    const w = new World(l);
+    hold(w, 0, 3);
+    expect(w.obj.plates.find((p) => p.id === 'eye')!.pressed).toBe(false); // the pillar at col 11 is in the way
+  });
+});
+
+describe('fast travel', () => {
+  it('only to visited rooms, landing at a bench in zones', () => {
+    const A = mk(`
+##########
+#........#
+#S........
+##########
+`, { id: 'A' });
+    A.kind = 'zone';
+    A.exits = [{ id: 'east', x: 9, y: 2, w: 1, h: 1, to: 'B', toExit: 'west' }];
+    const B = mk(`
+##########
+#........#
+.........#
+##########
+`, { id: 'B', objects: [{ type: 'bench', id: 'b', x: 6, y: 2 }, { type: 'spawn', id: 'spawn', x: 2, y: 2 }, { type: 'door', id: 'door', x: 8, y: 2 }] });
+    B.kind = 'zone';
+    B.exits = [{ id: 'west', x: 0, y: 2, w: 1, h: 1, to: 'A', toExit: 'east' }];
+    const c = new Campaign({ version: 1, name: 't', start: { room: 'A' }, rooms: ['A', 'B'] }, [A, B]);
+    expect(c.travelTo('B')).toBe(false);
+    for (let i = 0; i < 200 && c.roomId === 'A'; i++) c.step(Btn.Right);
+    for (let i = 0; i < 30; i++) c.step(Btn.Left);
+    expect(c.travelTo('A')).toBe(true);
+    expect(c.roomId).toBe('A');
+    expect(c.travelTo('B')).toBe(true);
+    expect(Math.abs(c.room.pip.x - 6 * U)).toBeLessThan(U);
+  });
+});

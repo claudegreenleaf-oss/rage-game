@@ -27,7 +27,7 @@ const HOP_TRIGGER = 60;
 
 export interface RtDropper extends Box { def: DropperObj; id: string; homeY: number; state: 'idle' | 'shake' | 'armed' | 'fall' | 'gone'; t: number; vy: number }
 export interface RtCrusher extends Box { def: CrusherObj; id: string; homeY: number; state: 'idle' | 'slam' | 'hold' | 'rise'; t: number }
-export interface RtPlate extends Box { def: PlateObj; id: string; weight: number; pressed: boolean; changed: boolean }
+export interface RtPlate extends Box { def: PlateObj; id: string; weight: number; pressed: boolean; changed: boolean; /** A light sensor, pressed while lit. */ light?: boolean }
 export interface RtGate extends Box { def: GateObj; id: string; open: number; toggled: boolean; target: boolean }
 export interface RtPlatform extends Box { def: PlatformObj; id: string; pts: Pt[]; seg: number; active: boolean; done: boolean; dx: number; dy: number }
 export interface RtMover { cells: Array<{ cx: number; cy: number; g: TileGlyph }>; ox: number; oy: number; pts: Pt[]; seg: number; speed: number; done: boolean }
@@ -107,6 +107,10 @@ export function buildObjects(w: World): ObjectState {
       case 'door': {
         const d: RtDoor = { def: o, id: o.id, x: o.x * U + ((U - DOOR_W) >> 1), y: o.y * U, w: DOOR_W, h: U, vx: 0, vy: 0, state: 'idle', hopT: 0, path: [], seg: 0, speed: 0, cooldown: 0, facing: -1 };
         s.doors.push(d); s.byId.set(o.id, d); break;
+      }
+      case 'sensor': {
+        const p: RtPlate = { def: { type: 'plate', id: o.id, x: o.x, y: o.y, w: 1, need: 1 }, id: o.id, x: o.x * U, y: o.y * U, w: U, h: U, weight: 0, pressed: false, changed: false, light: true };
+        s.plates.push(p); s.byId.set(o.id, p); break;
       }
       case 'popup': { const p: RtPopup = { def: o, id: o.id, up: false }; s.popups.push(p); s.byId.set(o.id, p); break; }
       case 'sign': { const g: RtSign = { def: o, id: o.id, override: null }; s.signs.push(g); s.byId.set(o.id, g); break; }
@@ -678,15 +682,41 @@ export function hazardChecks(w: World): void {
 export function plateOf(w: World, s: { kind: string; cx?: number; cy?: number } | null): RtPlate | undefined {
   if (!s || s.kind !== 'tile' || s.cx === undefined || s.cy === undefined) return undefined;
   const cx = s.cx, row = s.cy - 1;
-  return w.obj.plates.find((p) => p.def.y === row && cx >= p.def.x && cx < p.def.x + p.def.w);
+  return w.obj.plates.find((p) => !p.light && p.def.y === row && cx >= p.def.x && cx < p.def.x + p.def.w);
+}
+
+/** Pip's flashlight: a cone from Pip's eyes in the facing direction, blocked by solid terrain. */
+export const FLASH_RANGE = 9 * U;
+export const FLASH_HALF_ANGLE = 0.56; // radians (~32°)
+
+export function flashlightOrigin(w: World): { x: number; y: number } {
+  const p = w.pip;
+  return { x: p.x + p.w / 2 + p.facing * 40, y: p.y + p.h * 0.35 };
+}
+
+/** Is the point inside Pip's beam (and not behind a wall)? */
+export function inFlashlight(w: World, x: number, y: number): boolean {
+  if (!w.pipAlive) return false;
+  const o = flashlightOrigin(w);
+  const dx = x - o.x, dy = y - o.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d > FLASH_RANGE) return false;
+  if (d > 1 && Math.acos(Math.max(-1, Math.min(1, (dx * w.pip.facing) / d))) > FLASH_HALF_ANGLE) return false;
+  // Line of sight across tiles (sample every quarter tile).
+  const steps = Math.ceil(d / (U / 4));
+  for (let i = 1; i < steps; i++) {
+    const sx = o.x + (dx * i) / steps, sy = o.y + (dy * i) / steps;
+    if (isSolidGlyph(w.tileAt(Math.floor(sx / U), Math.floor(sy / U)))) return false;
+  }
+  return true;
 }
 
 export function updatePlates(w: World, silent = false): void {
   for (const p of w.obj.plates) {
     let weight = 0;
-    for (const key of w.supports.keys()) if (plateOf(w, w.rootSupport(key)) === p) weight += w.weightOf(key);
+    if (!p.light) for (const key of w.supports.keys()) if (plateOf(w, w.rootSupport(key)) === p) weight += w.weightOf(key);
     p.weight = weight;
-    const pressed = weight >= p.def.need;
+    const pressed = p.light ? inFlashlight(w, p.x + U / 2, p.y + U / 2) : weight >= p.def.need;
     p.changed = !silent && pressed !== p.pressed;
     if (p.changed) w.fx.push({ t: 'plate', id: p.id, down: pressed });
     p.pressed = pressed;

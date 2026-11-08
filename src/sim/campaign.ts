@@ -132,6 +132,25 @@ export class Campaign {
     }
   }
 
+  /**
+   * Fast travel (from the map) to a room already visited: chambers start at their spawn,
+   * zones at their first bench, else their spawn, else just inside their first exit.
+   */
+  travelTo(id: string): boolean {
+    if (!this.visited.has(id) || !this.rooms.has(id)) return false;
+    const l = this.level(id);
+    const from = this.roomId;
+    if (l.kind !== 'zone') { this.room = new World(l, { collected: this.collected }); this.setRoom(id, from, 'start'); return true; }
+    const bench = l.objects.find((o) => o.type === 'bench');
+    const spawn = l.objects.find((o) => o.type === 'spawn');
+    const e = l.exits?.[0];
+    const entry = bench ? { x: bench.x * U + ((U - PIP_W) >> 1), y: bench.y * U + U - PIP_H }
+      : spawn ? undefined : e ? entryPoint(l, e) : undefined;
+    this.room = new World(l, { collected: this.collected, entry });
+    this.setRoom(id, from, 'start');
+    return true;
+  }
+
   /** Start a room at its own spawn (new run, or a loaded save). */
   enterAtSpawn(id: string): void {
     const from = this.roomId || null;

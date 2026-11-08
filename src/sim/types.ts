@@ -79,13 +79,15 @@ export interface CrateObj { type: 'crate'; id: string; x: number; y: number }
 export interface BenchObj { type: 'bench'; id: string; x: number; y: number }
 /** A collectible (kept for the whole run): a lab note with lore, or a specimen jar. */
 export interface RelicObj { type: 'relic'; id: string; x: number; y: number; kind: 'note' | 'jar'; text?: string }
+/** A light sensor: "pressed" while Pip's flashlight beam hits it (link gates/lasers/events to it like a plate). */
+export interface SensorObj { type: 'sensor'; id: string; x: number; y: number }
 /** Decorative light source (render only). */
 export interface LightObj { type: 'light'; id: string; x: number; y: number; color?: string; radius?: number; flicker?: boolean }
 
 export type LevelObject =
   | SpawnObj | DoorObj | SignObj | PopupObj | DropperObj | CrusherObj
   | PlateObj | GateObj | PlatformObj | LaserObj | LabelObj
-  | VineObj | CrateObj | BenchObj | RelicObj | LightObj;
+  | VineObj | CrateObj | BenchObj | RelicObj | LightObj | SensorObj;
 export type ObjType = LevelObject['type'];
 
 export interface Zone { id: string; x: number; y: number; w: number; h: number }
@@ -229,6 +231,8 @@ export interface LevelData {
   images?: PixelArt[];
   audio?: LevelAudio;
   rules?: LevelRules;
+  /** Dark room: only Pip's flashlight beam and light objects show anything. */
+  dark?: boolean;
   /** Visual palette override for the level (act palette index 1-3). */
   palette?: number;
   /** Intended deaths for the solution path (used to suggest a restart when the player is far past it). */
