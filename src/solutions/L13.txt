@@ -1,0 +1,8 @@
+# L13 Inventory: crates forget, bodies remember.
+right 200     # push the crate into the well, cross: the panel gets us (death 1). The crate goes home; the body stays.
+right 190     # again (death 2): body 1 is Rot (1), body 2 Fresh (2)
+wait 20
+right 128     # final life: push the crate into the well: 1 + 2 + 2 = 5
+left 10       # back off and let the panel drop
+wait 50
+right 160     # through the gate

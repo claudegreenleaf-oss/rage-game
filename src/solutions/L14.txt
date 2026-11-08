@@ -1,0 +1,13 @@
+# L14 Formaldehyde: nothing rots, so stack yourself.
+right 200     # the ceiling panel gets us (death 1)
+wait 30
+right 22
+right+jump 16 # jump onto the body and stand there (death 2): body 2 lands on top
+wait 60
+right 140     # push the stack against the ledge (the panel smashes on top of it)
+left 6
+wait 30
+right+jump 18 # up onto the stack
+wait 10
+right+jump 22 # and onto the ledge
+right 60

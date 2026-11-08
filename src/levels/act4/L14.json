@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "id": "L14",
+  "name": "Formaldehyde",
+  "act": 4,
+  "width": 22,
+  "height": 11,
+  "tiles": [
+    "######################",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#..............#######",
+    "#..............#######",
+    "#..............#######",
+    "######################"
+  ],
+  "objects": [
+    {
+      "type": "dropper",
+      "id": "d1",
+      "x": 14,
+      "y": 1
+    },
+    {
+      "type": "sign",
+      "id": "s1",
+      "x": 14,
+      "y": 6,
+      "text": {
+        "0": "Preservation wing. Nothing rots here.",
+        "2": "Fresh forever. Heavy forever.",
+        "3": "Stand on yourself. It helps."
+      }
+    },
+    {
+      "type": "door",
+      "id": "door",
+      "x": 18,
+      "y": 6
+    },
+    {
+      "type": "spawn",
+      "id": "spawn",
+      "x": 1,
+      "y": 9
+    },
+    {
+      "type": "sign",
+      "id": "s2",
+      "x": 3,
+      "y": 9,
+      "text": {
+        "0": "Mind the ceiling panel.",
+        "2": "You again. And again."
+      }
+    }
+  ],
+  "zones": [],
+  "events": [],
+  "rules": {
+    "aging": false,
+    "jump": 0.85
+  },
+  "kind": "chamber",
+  "par": 2
+}

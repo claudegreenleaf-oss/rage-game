@@ -1,0 +1,12 @@
+# L15 Pendulum: two deaths at the pit's edge, then bounce up to the vine and leap from it.
+right 60      # into the first spike (death 1)
+wait 20
+right 60      # over the body, into the second spike (death 2): body 1 rots
+wait 20
+right 16      # to the pit's edge
+wait 6
+jump 12       # hop onto the Rot body: it throws us up to the vine
+right+jump 4
+right 62      # grab it, keep leaning right
+right+jump 16 # and leap for the ledge
+right 100

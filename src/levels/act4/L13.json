@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "id": "L13",
+  "name": "Inventory",
+  "act": 4,
+  "width": 22,
+  "height": 9,
+  "tiles": [
+    "######################",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "##########.###########",
+    "##########.###########",
+    "######################"
+  ],
+  "objects": [
+    {
+      "type": "dropper",
+      "id": "d1",
+      "x": 10,
+      "y": 1
+    },
+    {
+      "type": "spawn",
+      "id": "spawn",
+      "x": 1,
+      "y": 5
+    },
+    {
+      "type": "sign",
+      "id": "s1",
+      "x": 3,
+      "y": 5,
+      "text": {
+        "0": "Company property. Return when done.",
+        "2": "Bodies stay. Boxes go home.",
+        "4": "Rot 1 + Fresh 2 + box 2. Do the maths."
+      }
+    },
+    {
+      "type": "sign",
+      "id": "s2",
+      "x": 11,
+      "y": 5,
+      "text": {
+        "0": "Heavy plate. Bring friends.",
+        "1": "Five. The plate wants five."
+      }
+    },
+    {
+      "type": "gate",
+      "id": "g1",
+      "x": 19,
+      "y": 1,
+      "h": 5,
+      "plate": "pl1"
+    },
+    {
+      "type": "door",
+      "id": "door",
+      "x": 20,
+      "y": 5
+    },
+    {
+      "type": "plate",
+      "id": "pl1",
+      "x": 10,
+      "y": 7,
+      "w": 1,
+      "need": 5
+    },
+    {
+      "type": "crate",
+      "id": "k1",
+      "x": 6,
+      "y": 5
+    }
+  ],
+  "zones": [],
+  "events": [],
+  "kind": "chamber",
+  "par": 2
+}

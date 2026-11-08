@@ -1,0 +1,10 @@
+# L16 Critical Mass: the well first, the press second, the crate last, and no more deaths.
+left 30       # stand against the wall on the crumbling tile...
+wait 60       # ...it gives way: the spike well (death 1)
+right 64      # stand on the press plate (death 2): a Fresh slab holds it. The well body is Rot now.
+wait 60
+right 212     # final life: over the slab (quickly!) and push the crate onto the other plate
+left 176      # back to the wall: the tile gives way and we drop onto the Rot body
+wait 22       # ride the bounce straight up the shaft...
+right 60      # ...then onto the upper floor
+right 160     # through both gates

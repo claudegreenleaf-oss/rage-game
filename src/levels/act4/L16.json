@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "id": "L16",
+  "name": "Critical Mass",
+  "act": 4,
+  "width": 28,
+  "height": 12,
+  "tiles": [
+    "############################",
+    "#..........................#",
+    "#..........................#",
+    "#..........................#",
+    "#..........................#",
+    "#..........................#",
+    "#.##########################",
+    "#..........................#",
+    "#..........................#",
+    "#%##########################",
+    "#^##########################",
+    "############################"
+  ],
+  "objects": [
+    {
+      "type": "sign",
+      "id": "s1",
+      "x": 13,
+      "y": 5,
+      "text": {
+        "0": "Stand by the wall. Admire the floor.",
+        "1": "The floor admired you back.",
+        "3": "Well first. Press second. Box last."
+      }
+    },
+    {
+      "type": "door",
+      "id": "door",
+      "x": 23,
+      "y": 5
+    },
+    {
+      "type": "crusher",
+      "id": "c1",
+      "x": 10,
+      "y": 7,
+      "w": 2,
+      "h": 0.5
+    },
+    {
+      "type": "sign",
+      "id": "s2",
+      "x": 1,
+      "y": 8,
+      "text": {
+        "0": "Almost out. Probably.",
+        "2": "Two plates. Two kinds of heavy."
+      }
+    },
+    {
+      "type": "spawn",
+      "id": "spawn",
+      "x": 3,
+      "y": 8
+    },
+    {
+      "type": "plate",
+      "id": "pl1",
+      "x": 10,
+      "y": 8,
+      "w": 2,
+      "need": 2
+    },
+    {
+      "type": "plate",
+      "id": "pl2",
+      "x": 19,
+      "y": 8,
+      "w": 1,
+      "need": 2
+    },
+    {
+      "type": "crate",
+      "id": "k1",
+      "x": 15,
+      "y": 8
+    },
+    {
+      "type": "gate",
+      "id": "g1",
+      "x": 14,
+      "y": 1,
+      "h": 5,
+      "plate": "pl1"
+    },
+    {
+      "type": "gate",
+      "id": "g2",
+      "x": 18,
+      "y": 1,
+      "h": 5,
+      "plate": "pl2"
+    }
+  ],
+  "zones": [],
+  "events": [
+    {
+      "trigger": {
+        "type": "playerOn",
+        "target": "pl1"
+      },
+      "actions": [
+        {
+          "type": "fireCrusher",
+          "target": "c1",
+          "delay": 20
+        }
+      ],
+      "once": true
+    }
+  ],
+  "kind": "chamber",
+  "par": 2
+}
