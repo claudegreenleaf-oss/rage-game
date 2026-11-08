@@ -1,0 +1,25 @@
+# L11 Assembly Line
+right 40
+right+jump 20 # up onto the step
+wait 20
+right 8       # bait the dropper over the conveyor
+left 8
+wait 40
+right 40      # hop down onto the conveyor and walk into the press (death 1): a Fresh slab
+wait 240      # it rides through the slot and drops onto the plate: the staff gate opens
+right 40
+right+jump 20 # back up onto the step...
+wait 10
+left+jump 24  # ...and onto the shelf
+left 30       # the pop-up gets us (death 2): the slab ages to Rot, the gate closes
+wait 30
+right 40
+right+jump 20 # onto the step again
+wait 10
+right 30      # down under the dropper this time (death 3): its body rides into the press
+wait 300      # Rot... now Skeleton slab 0 + new Fresh slab 2 = 2: open
+right 40
+right+jump 20
+wait 10
+left+jump 24  # up to the shelf; the pop-up is covered by body 2
+left 60

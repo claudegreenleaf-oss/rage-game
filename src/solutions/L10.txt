@@ -1,0 +1,38 @@
+right 40      # dropper 1 (death 1)
+wait 30
+right 16      # bait dropper 1
+left 10
+wait 40
+right 20
+right+jump 22 # hop over body 1
+right 30
+wait 60       # stand under dropper 2 (death 2): body 1 turns Rot
+wait 10
+right 16      # bait dropper 1
+left 10
+wait 40
+right 90      # push the Rot body until dropper 2 starts shaking...
+wait 40
+right 120     # ...then push both into the well (Fresh 2 + Rot 1 = 3), walk on: dropper 3 (death 3)
+wait 24       # the well ages to Skeleton 0 + Rot 1: the gate slams
+right 40      # dropper 1 again (death 4): the well's skeleton crumbles to dust
+wait 30
+right 14      # bait dropper 1
+left 10
+wait 40
+right 20
+right+jump 22 # hop over body 4
+right 34
+wait 60       # stand under dropper 2 (death 5): body 4 turns Rot
+wait 10
+right 16      # bait dropper 1
+left 10
+wait 40
+right 90      # push the Rot body until dropper 2 starts shaking...
+wait 40
+right 90      # ...then both into the well again: Rot 1 + Fresh 2 = 3
+wait 10
+right 16      # through the gate; bait dropper 3...
+left 12
+wait 40
+right 80      # ...and walk out

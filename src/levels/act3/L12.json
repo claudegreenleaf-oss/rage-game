@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "id": "L12",
+  "name": "Die Trying",
+  "act": 3,
+  "width": 26,
+  "height": 16,
+  "tiles": [
+    "##########################",
+    "##########################",
+    "##########################",
+    "##########################",
+    "##########################",
+    "###################......#",
+    "###################......#",
+    "###################......#",
+    "#...###############......#",
+    "#...###############......#",
+    "#...###############.######",
+    "###.#...............######",
+    "###.#...............######",
+    "###>................######",
+    "###................^######",
+    "##########################"
+  ],
+  "objects": [
+    {
+      "type": "sign",
+      "id": "s1",
+      "x": 20,
+      "y": 7,
+      "text": {
+        "0": "The key to the cliff.",
+        "3": "Key turned. Now hurry."
+      }
+    },
+    {
+      "type": "plate",
+      "id": "pl1",
+      "x": 22,
+      "y": 9,
+      "w": 1,
+      "need": 1
+    },
+    {
+      "type": "door",
+      "id": "door",
+      "x": 1,
+      "y": 10
+    },
+    {
+      "type": "gate",
+      "id": "g1",
+      "x": 2,
+      "y": 8,
+      "h": 3
+    },
+    {
+      "type": "crusher",
+      "id": "c1",
+      "x": 12,
+      "y": 11,
+      "w": 2,
+      "h": 1
+    },
+    {
+      "type": "sign",
+      "id": "s2",
+      "x": 5,
+      "y": 14,
+      "text": {
+        "0": "Chimney. Sweep not included."
+      }
+    },
+    {
+      "type": "spawn",
+      "id": "spawn",
+      "x": 7,
+      "y": 14
+    },
+    {
+      "type": "sign",
+      "id": "s3",
+      "x": 9,
+      "y": 14,
+      "text": {
+        "0": "Plan your funeral.",
+        "4": "Order matters. R starts over."
+      }
+    },
+    {
+      "type": "plate",
+      "id": "pl2",
+      "x": 12,
+      "y": 14,
+      "w": 2,
+      "need": 2
+    },
+    {
+      "type": "sign",
+      "id": "s4",
+      "x": 15,
+      "y": 14,
+      "text": {
+        "0": "Third time's the charm."
+      }
+    },
+    {
+      "type": "gate",
+      "id": "chimney",
+      "x": 3,
+      "y": 9,
+      "h": 2,
+      "plate": "pl2"
+    }
+  ],
+  "zones": [],
+  "events": [
+    {
+      "trigger": {
+        "type": "playerOn",
+        "target": "pl2"
+      },
+      "actions": [
+        {
+          "type": "fireCrusher",
+          "target": "c1",
+          "delay": 20
+        }
+      ],
+      "once": true
+    },
+    {
+      "trigger": {
+        "type": "plateDown",
+        "plate": "pl1"
+      },
+      "actions": [
+        {
+          "type": "toggleGate",
+          "target": "g1"
+        },
+        {
+          "type": "sign",
+          "target": "s1",
+          "text": "Door unlocked. Now hurry."
+        },
+        {
+          "type": "sfx",
+          "name": "jingle"
+        }
+      ],
+      "once": true
+    }
+  ]
+}

@@ -21,7 +21,7 @@ const HOP_V = 45;
 const HOP_G = 3;
 const HOP_TRIGGER = 60;
 
-export interface RtDropper extends Box { def: DropperObj; id: string; homeY: number; state: 'idle' | 'shake' | 'fall' | 'gone'; t: number; vy: number }
+export interface RtDropper extends Box { def: DropperObj; id: string; homeY: number; state: 'idle' | 'shake' | 'armed' | 'fall' | 'gone'; t: number; vy: number }
 export interface RtCrusher extends Box { def: CrusherObj; id: string; homeY: number; state: 'idle' | 'slam' | 'hold' | 'rise'; t: number }
 export interface RtPlate extends Box { def: PlateObj; id: string; weight: number; pressed: boolean; changed: boolean }
 export interface RtGate extends Box { def: GateObj; id: string; open: number; toggled: boolean; target: boolean }
@@ -50,7 +50,7 @@ export class ObjectState {
   /** Solid boxes contributed by objects this tick. */
   dynamicSolids(): Solid[] {
     const out: Solid[] = [];
-    for (const d of this.droppers) if (d.state === 'idle' || d.state === 'shake') out.push({ x: d.x, y: d.y, w: d.w, h: d.h, kind: 'dropper', oneWay: false, id: d.id });
+    for (const d of this.droppers) if (d.state === 'idle' || d.state === 'shake' || d.state === 'armed') out.push({ x: d.x, y: d.y, w: d.w, h: d.h, kind: 'dropper', oneWay: false, id: d.id });
     for (const c of this.crushers) out.push({ x: c.x, y: c.y, w: c.w, h: c.h, kind: 'crusher', oneWay: false, id: c.id });
     for (const p of this.plates) out.push({ x: p.x, y: p.y, w: p.w, h: p.h, kind: 'plate', oneWay: false, id: p.id });
     for (const g of this.gates) { const b = gateBox(g); if (b.h > 0) out.push({ ...b, kind: 'gate', oneWay: false, id: g.id }); }
@@ -204,8 +204,22 @@ function updateDroppers(w: World): void {
         // Aim where a walking Pip will be when it lands; an airborne Pip only sets it off directly.
         if (overlapX(p, zone) || (p.grounded && overlapX(predicted, zone))) fire = true;
       }
-      if (!fire && by.includes('door')) for (const door of w.obj.doors) if (overlapX(door, d) && door.y > d.y) fire = true;
       if (fire) startDropper(w, d);
+      else if (by.includes('door') && w.obj.doors.some((door) => overlapX(door, d) && door.y > d.y)) {
+        // The door "calls for help": the dropper rattles, then drops on Pip as Pip arrives (or after 2 s).
+        d.state = 'armed';
+        d.t = 120;
+        w.fx.push({ t: 'dropperShake', id: d.id });
+      }
+    } else if (d.state === 'armed') {
+      let drop = --d.t <= 0;
+      if (!drop && w.pipAlive && p.y > d.y + d.h) {
+        const T = fallTicks(p.y - (d.y + d.h));
+        const predicted = { x: p.x + p.vx * T, y: p.y, w: p.w, h: p.h };
+        const zone = { x: d.x + 24, y: d.y, w: d.w - 48, h: 1 };
+        drop = overlapX(p, zone) || (p.grounded && overlapX(predicted, zone));
+      }
+      if (drop && d.t < 105) { d.state = 'fall'; d.vy = DROPPER_V0; w.fx.push({ t: 'dropperFall', id: d.id }); }
     } else if (d.state === 'shake') {
       if (--d.t <= 0) { d.state = 'fall'; d.vy = DROPPER_V0; w.fx.push({ t: 'dropperFall', id: d.id }); }
     } else if (d.state === 'fall') {
@@ -379,6 +393,12 @@ function updateDoors(w: World): void {
     if (!near) { if (d.state !== 'tremble') d.state = 'idle'; else d.state = 'idle'; continue; }
     const dir: -1 | 1 = dxp > 0 ? -1 : 1;
     d.facing = dir;
+    // A body lying across the doorway pins it in place.
+    if (w.corpses.some((c) => c.stage !== 2 && overlaps(c, d))) {
+      if (d.state !== 'tremble') w.fx.push({ t: 'doorScurry', id: d.id });
+      d.state = 'tremble';
+      continue;
+    }
     const gap = dxp > 0 ? p.x - (d.x + d.w) : d.x - (p.x + p.w);
     const solids = doorSolids(w, d, dir * DOOR_RUN, 0);
     const r = sweepX(d, dir * DOOR_RUN, solids);

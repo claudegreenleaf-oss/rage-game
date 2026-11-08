@@ -160,9 +160,9 @@ add('act2', fromAscii(`
   props: {
     s1: { text: { 0: 'The exit is right over there. Go on.' } },
     door: { runaway: true },
-    d1: { by: ['player', 'door'] },
-    d2: { by: ['player', 'door'] },
-    d3: { by: ['player', 'door'] },
+    d1: { by: ['door'] },
+    d2: { by: ['door'] },
+    d3: { by: ['door'] },
   },
   zones: [{ id: 'corner', x: 21, y: 1, w: 4, h: 4 }],
   events: [{ trigger: { type: 'playerEnters', zone: 'corner' }, actions: [{ type: 'sign', target: 's1', text: "Doors can jump. Didn't you know?", delay: 30 }], once: true }],
@@ -179,23 +179,23 @@ add('act3', fromAscii(`
 #...#####
 #...#####
 #...#####
-#>..#####
+#...#####
 #..<#####
 #...#####
 #>..#####
-#S?.#####
+#S?^#####
 #########
 `, {
   id: 'L09', name: 'Hang In There', act: 3,
-  props: { s1: { text: { 0: 'Hang in there.', 3: 'Up is the only way out.' } } },
+  props: { s1: { text: { 0: 'Hang in there.', 2: 'Feeling stuck? Age gracefully.', 4: 'Up is the only way out.' } } },
 }));
 
 add('act3', fromAscii(`
 ########################
-#....d....d............#
+#....d....d........d...#
 #......................#
 #......................#
-#S.?...........|...d..D#
+#S.?...........|......D#
 ############.###########
 ############3###########
 ########################
@@ -205,6 +205,101 @@ add('act3', fromAscii(`
     s1: { text: { 0: 'Bring the whole family.' } },
     g1: { y: 1, h: 4, plate: 'pl1' },
   },
+}));
+
+add('act3', fromAscii(`
+######################
+#.........d.CCC#######
+#D|p.?.........#######
+######.........#######
+#..............#######
+#......##.......######
+#S.....##?....?.....##
+#########}}}}}}}}}}.##
+###################.##
+###################.##
+###################_##
+######################
+`, {
+  id: 'L11', name: 'Assembly Line', act: 3,
+  props: {
+    s1: { text: { 0: 'Staff entrance.' } },
+    s2: { text: { 0: 'Free ride!' } },
+    s3: { text: { 0: 'Employees only.' } },
+    g1: { y: 1, h: 2, plate: 'pl1' },
+    c1: { h: 2, period: 120, phase: 40 },
+    pl1: { need: 2 },
+  },
+  objects: [{ type: 'gate', id: 'slot', x: 15, y: 5, h: 1.6 }],
+  zones: [{ id: 'popzone', x: 4, y: 1, w: 2, h: 2 }],
+  events: [
+    { trigger: { type: 'playerEnters', zone: 'popzone' }, actions: [{ type: 'popSpike', target: 'p1' }], once: true },
+    { trigger: { type: 'plateDown', plate: 'pl1' }, actions: [{ type: 'sign', target: 's1', text: 'Thanks for your contribution.' }, { type: 'sfx', name: 'jingle' }] },
+  ],
+}));
+
+add('act3', fromAscii(`
+##########################
+##########################
+##########################
+##########################
+##########################
+###################......#
+###################......#
+###################.?....#
+#...###############......#
+#...###############..._..#
+#D|.###############.######
+###.#.......CC......######
+###.#...............######
+###>................######
+###..?.S.?..__.?...^######
+##########################
+`, {
+  id: 'L12', name: 'Die Trying', act: 3,
+  props: {
+    s1: { text: { 0: 'The key to the cliff.', 3: 'Key turned. Now hurry.' } },
+    s2: { text: { 0: 'Chimney. Sweep not included.' } },
+    s3: { text: { 0: 'Plan your funeral.', 4: 'Order matters. R starts over.' } },
+    s4: { text: { 0: 'Third time\'s the charm.' } },
+    g1: { y: 8, h: 3 },
+    c1: { h: 1 },
+    pl2: { need: 2 },
+  },
+  objects: [{ type: 'gate', id: 'chimney', x: 3, y: 9, h: 2, plate: 'pl2' }],
+  events: [
+    { trigger: { type: 'playerOn', target: 'pl2' }, actions: [{ type: 'fireCrusher', target: 'c1', delay: 20 }], once: true },
+    { trigger: { type: 'plateDown', plate: 'pl1' }, actions: [{ type: 'toggleGate', target: 'g1' }, { type: 'sign', target: 's1', text: 'Door unlocked. Now hurry.' }, { type: 'sfx', name: 'jingle' }], once: true },
+  ],
+}));
+
+// The playable credits roll.
+add('extra', fromAscii(`
+##############################
+#............................#
+#............................#
+#............................#
+#............................#
+#...............#####........#
+#......................?..p.D#
+#.........#####.......########
+#............................#
+#...#####....................#
+#S...........................#
+##############################
+`, {
+  id: 'credits', name: 'Credits', credits: true,
+  props: { s1: { text: { 0: 'Directed by: the signs' } } },
+  objects: [
+    { type: 'label', id: 'title', x: 15, y: 2, text: 'DIE TRYING', size: 2 },
+    { type: 'label', id: 'for', x: 15, y: 3.2, text: 'made for Thomas Greenleaf', size: 0.8 },
+    { type: 'label', id: 'n1', x: 6.5, y: 9.5, text: 'PIP · as themself' },
+    { type: 'label', id: 'n2', x: 12.5, y: 7.5, text: 'BODIES · also Pip' },
+    { type: 'label', id: 'n3', x: 18.5, y: 5.5, text: 'CODE · Claude' },
+    { type: 'label', id: 'n4', x: 25.5, y: 7.5, text: 'THANKS FOR PLAYING' },
+  ],
+  zones: [{ id: 'last', x: 24, y: 5, w: 2, h: 2 }],
+  events: [{ trigger: { type: 'playerEnters', zone: 'last' }, actions: [{ type: 'popSpike', target: 'p1' }], once: true }],
 }));
 
 for (const { dir, level } of levels) {

@@ -1,0 +1,5 @@
+# L08 Runaway: chase the door; the dropper it runs under squashes us (death 1).
+right 200
+wait 40
+# Our body now lies across the door's start: it can't run, so walk right in.
+right 200

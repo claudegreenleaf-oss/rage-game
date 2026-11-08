@@ -1,0 +1,22 @@
+# L12 Die Trying: die at A first, B second, C third. Then A is a Skeleton, B is Rot, C is Fresh.
+left 40       # walk into the chimney
+wait 4
+jump 20       # A: jump into the chimney spike (death 1)
+wait 30
+right 98      # B: walk to the spike at the cliff's foot (death 2)
+wait 30
+right 46      # C: stand on the press plate (death 3)
+wait 60
+right 90      # walk over the slab (the press misses) toward the cliff
+right+jump 10 # hop onto B's Rot body...
+wait 14
+right 40      # ...bounce up and drift onto the cliff
+right 30      # step on the key plate: the door gate unlocks
+left 40       # back off the cliff
+wait 30
+left 200      # bounce off B on the way down, then head for the chimney
+jump 24       # A: jump up through the skeleton ledge and land on it
+wait 10
+jump 16       # up the chimney: the press slab holds the chimney gate open
+left+jump 8
+left 60       # through the unlocked door gate and out

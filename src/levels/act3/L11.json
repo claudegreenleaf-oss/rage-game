@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "id": "L11",
+  "name": "Assembly Line",
+  "act": 3,
+  "width": 22,
+  "height": 12,
+  "tiles": [
+    "######################",
+    "#..............#######",
+    "#..............#######",
+    "######.........#######",
+    "#..............#######",
+    "#......##.......######",
+    "#......##...........##",
+    "#########}}}}}}}}}}.##",
+    "###################.##",
+    "###################.##",
+    "###################.##",
+    "######################"
+  ],
+  "objects": [
+    {
+      "type": "dropper",
+      "id": "d1",
+      "x": 10,
+      "y": 1
+    },
+    {
+      "type": "crusher",
+      "id": "c1",
+      "x": 12,
+      "y": 1,
+      "w": 3,
+      "h": 2,
+      "period": 120,
+      "phase": 40
+    },
+    {
+      "type": "door",
+      "id": "door",
+      "x": 1,
+      "y": 2
+    },
+    {
+      "type": "gate",
+      "id": "g1",
+      "x": 2,
+      "y": 1,
+      "h": 2,
+      "plate": "pl1"
+    },
+    {
+      "type": "popup",
+      "id": "p1",
+      "x": 3,
+      "y": 2
+    },
+    {
+      "type": "sign",
+      "id": "s1",
+      "x": 5,
+      "y": 2,
+      "text": {
+        "0": "Staff entrance."
+      }
+    },
+    {
+      "type": "spawn",
+      "id": "spawn",
+      "x": 1,
+      "y": 6
+    },
+    {
+      "type": "sign",
+      "id": "s2",
+      "x": 9,
+      "y": 6,
+      "text": {
+        "0": "Free ride!"
+      }
+    },
+    {
+      "type": "sign",
+      "id": "s3",
+      "x": 14,
+      "y": 6,
+      "text": {
+        "0": "Employees only."
+      }
+    },
+    {
+      "type": "plate",
+      "id": "pl1",
+      "x": 19,
+      "y": 10,
+      "w": 1,
+      "need": 2
+    },
+    {
+      "type": "gate",
+      "id": "slot",
+      "x": 15,
+      "y": 5,
+      "h": 1.6
+    }
+  ],
+  "zones": [
+    {
+      "id": "popzone",
+      "x": 4,
+      "y": 1,
+      "w": 2,
+      "h": 2
+    }
+  ],
+  "events": [
+    {
+      "trigger": {
+        "type": "playerEnters",
+        "zone": "popzone"
+      },
+      "actions": [
+        {
+          "type": "popSpike",
+          "target": "p1"
+        }
+      ],
+      "once": true
+    },
+    {
+      "trigger": {
+        "type": "plateDown",
+        "plate": "pl1"
+      },
+      "actions": [
+        {
+          "type": "sign",
+          "target": "s1",
+          "text": "Thanks for your contribution."
+        },
+        {
+          "type": "sfx",
+          "name": "jingle"
+        }
+      ]
+    }
+  ]
+}

@@ -18,7 +18,7 @@ const f = (n: number) => (n / U).toFixed(2);
 const state = () => {
   const p = w.pip;
   const cs = w.corpses.map((c) => `${STAGE_NAMES[c.stage][0]}${c.shape === 'slab' ? 's' : ''}${c.pin ? 'p' : ''}${c.floating ? 'f' : ''}@${f(c.x)},${f(c.y)}`).join(' ');
-  const pl = w.obj.platforms.map((m) => ` M@${f(m.x)},${f(m.y)}`).join('') + w.obj.lasers.map((l) => ` ${l.id}:${l.active ? 'ON' : 'off'}`).join('') + ` L${w.lifeTick}`;
+  const pl = w.obj.platforms.map((m) => ` M@${f(m.x)},${f(m.y)}`).join('') + w.obj.lasers.map((l) => ` ${l.id}:${l.active ? 'ON' : 'off'}`).join('') + w.obj.doors.filter((d) => d.def.runaway).map((d) => ` door@${f(d.x)}:${d.state}`).join('') + ` L${w.lifeTick}`;
   return `t=${w.tick}${pl} pip=${w.pipAlive ? `${f(p.x)},${f(p.y)} v=${p.vx},${p.vy}${p.grounded ? ' G' : ''}` : 'DEAD'} deaths=${w.deathCount} [${cs}]${w.won ? ' WON' : ''}`;
 };
 let line = 0;

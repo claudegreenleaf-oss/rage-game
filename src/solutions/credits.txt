@@ -1,0 +1,24 @@
+# Credits: hop up the names, then one last pop-up under "Thanks for playing" (death 1).
+right 16
+right+jump 20 # up onto PIP
+right 19
+right+jump 22 # up onto BODIES
+right 34
+right+jump 22 # up onto CODE
+right 31
+right+jump 16 # over to THANKS FOR PLAYING
+right 40      # the last pop-up (death 1)
+wait 30
+right 16
+right+jump 20 # up onto PIP
+right 19
+right+jump 22 # up onto BODIES
+right 34
+right+jump 22 # up onto CODE
+right 31
+right+jump 16 # over to THANKS FOR PLAYING
+right 14      # set off the pop-up...
+left 6
+wait 10
+right+jump 18 # ...hop it
+right 30
