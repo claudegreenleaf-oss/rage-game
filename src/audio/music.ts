@@ -1,122 +1,142 @@
-// A tiny tracker: note patterns rendered with ZzFX into one looping buffer per act. Quiet under the SFX.
+// Music playback: each song (src/audio/songs.ts) is rendered once into a seamless stereo loop in a Web
+// Worker, cached, and played as a looping buffer through the music bus, crossfading between songs.
 import { audio } from './sfx';
+import { renderSong, type Rendered } from './synth';
+import { FANFARE, SONGS } from './songs';
 
-type Inst = 'lead' | 'bass' | 'bell' | 'hat' | 'kick';
-type Note = [step: number, midi: number, len: number, inst: Inst];
+/** Music sits about 10 dB under the effects: every loop is levelled to this RMS (dBFS) at the bus. */
+const MUSIC_RMS_DB = -26;
+const FADE = 0.9;
 
-interface Song { bpm: number; steps: number; notes: Note[] }
+type Id = number | 'fanfare';
+interface Loop { buffer: AudioBuffer; gain: number }
 
-const midi = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
+const cache = new Map<Id, Loop>();
+const pending = new Map<Id, Promise<Loop | null>>();
+let worker: Worker | null | undefined;
+const waiters = new Map<Id, (r: { left: Float32Array; right: Float32Array; rms: number } | null) => void>();
 
-function seq(start: number, every: number, notes: number[], len: number, inst: Inst): Note[] {
-  return notes.map((n, i) => [start + i * every, n, len, inst] as Note).filter((n) => n[1] > 0);
-}
-
-const drums = (steps: number): Note[] => {
-  const out: Note[] = [];
-  for (let s = 0; s < steps; s += 4) out.push([s, 36, 1, s % 8 === 0 ? 'kick' : 'hat']);
-  for (let s = 2; s < steps; s += 4) out.push([s, 80, 1, 'hat']);
-  return out;
-};
-
-// 4 bars of 16 steps each.
-const SONGS: Record<number, Song> = {
-  0: { bpm: 104, steps: 64, notes: [
-    ...seq(0, 8, [48, 55, 53, 55, 45, 52, 50, 55], 6, 'bass'),
-    ...seq(0, 2, [72, 0, 76, 79, 0, 76, 74, 0, 72, 0, 74, 76, 0, 79, 81, 0, 79, 0, 76, 72, 0, 74, 76, 0, 74, 0, 72, 69, 0, 71, 72, 0], 2, 'bell'),
-  ] },
-  1: { bpm: 118, steps: 64, notes: [
-    ...seq(0, 4, [48, 0, 55, 0, 53, 0, 55, 0, 45, 0, 52, 0, 50, 0, 55, 0], 3, 'bass'),
-    ...seq(0, 2, [72, 76, 79, 76, 0, 77, 76, 74, 72, 0, 74, 76, 74, 72, 69, 0, 69, 72, 76, 74, 0, 72, 74, 71, 72, 0, 0, 79, 77, 76, 74, 0], 2, 'lead'),
-    ...drums(64),
-  ] },
-  2: { bpm: 100, steps: 64, notes: [
-    ...seq(0, 4, [45, 0, 52, 0, 48, 0, 55, 0, 41, 0, 48, 0, 43, 0, 50, 0], 3, 'bass'),
-    ...seq(0, 2, [69, 0, 72, 0, 76, 74, 72, 0, 71, 0, 72, 74, 0, 72, 69, 0, 65, 0, 69, 72, 0, 74, 72, 69, 67, 0, 71, 74, 0, 71, 67, 0], 3, 'bell'),
-    ...drums(64),
-  ] },
-  3: { bpm: 96, steps: 64, notes: [
-    ...seq(0, 4, [50, 0, 57, 0, 53, 0, 60, 0, 48, 0, 55, 0, 52, 0, 57, 0], 3, 'bass'),
-    ...seq(0, 2, [74, 0, 77, 81, 0, 79, 77, 0, 76, 0, 74, 72, 0, 74, 77, 0, 74, 0, 72, 69, 0, 72, 74, 0, 76, 77, 0, 76, 74, 0, 0, 0], 3, 'lead'),
-    ...seq(1, 8, [86, 84, 81, 84, 86, 88, 86, 81], 1, 'bell'),
-    ...drums(64),
-  ] },
-};
-
-const cache = new Map<number, Float32Array>();
-let current: { source: AudioBufferSourceNode & { gainNode?: GainNode }; act: number } | null = null;
+let current: { id: number; src: AudioBufferSourceNode; gain: GainNode } | null = null;
 let wanted = -1;
 
-function render(act: number): Float32Array | null {
-  const Z = audio.zzfx();
-  if (!Z) return null;
-  const song = SONGS[act] ?? SONGS[1]!;
-  const sr = Z.ZZFX.sampleRate;
-  const stepLen = (60 / song.bpm / 4) * sr;
-  const total = Math.floor(stepLen * song.steps);
-  const out = new Float32Array(total);
-  for (const [step, n, len, inst] of song.notes) {
-    const f = midi(n);
-    const dur = (len * stepLen) / sr;
-    let s: number[];
-    switch (inst) {
-      case 'lead': s = Z.ZZFX.buildSamples(0.38, 0, f, 0.01, dur * 0.5, dur * 0.5, 2, 1.3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.6, 0.02, 0.15); break;
-      case 'bell': s = Z.ZZFX.buildSamples(0.32, 0, f, 0.005, 0.02, dur + 0.15, 0, 1.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0.05); break;
-      case 'bass': s = Z.ZZFX.buildSamples(0.55, 0, f, 0.01, dur * 0.6, dur * 0.35, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8); break;
-      case 'kick': s = Z.ZZFX.buildSamples(0.6, 0, 70, 0, 0.03, 0.12, 0, 1, -6); break;
-      default: s = Z.ZZFX.buildSamples(0.12, 0, 4000, 0, 0, 0.03, 4, 1, 0, 0, 0, 0, 0, 3); break;
-    }
-    const start = Math.floor(step * stepLen);
-    for (let i = 0; i < s.length; i++) out[(start + i) % total]! += s[i]!;
+function getWorker(): Worker | null {
+  if (worker !== undefined) return worker;
+  try {
+    worker = new Worker(new URL('./music.worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (e: MessageEvent<{ id: Id; left: Float32Array; right: Float32Array; rms: number }>) => {
+      const w = waiters.get(e.data.id);
+      waiters.delete(e.data.id);
+      w?.(e.data);
+    };
+    worker.onerror = () => { worker = null; for (const [, w] of waiters) w(null); waiters.clear(); };
+  } catch {
+    worker = null;
   }
-  let peak = 0;
-  for (let i = 0; i < total; i++) peak = Math.max(peak, Math.abs(out[i]!));
-  if (peak > 0) for (let i = 0; i < total; i++) out[i]! *= 0.9 / peak;
-  return out;
+  return worker;
+}
+
+/** Fallback: render on the main thread in ~6 ms slices. */
+function renderSliced(id: Id, sr: number): Promise<Rendered | null> {
+  const song = id === 'fanfare' ? FANFARE : SONGS[id];
+  if (!song) return Promise.resolve(null);
+  const gen = renderSong(song, sr);
+  return new Promise((resolve) => {
+    const step = () => {
+      const t0 = performance.now();
+      for (;;) {
+        const r = gen.next();
+        if (r.done) { resolve(r.value); return; }
+        if (performance.now() - t0 > 6) break;
+      }
+      setTimeout(step, 0);
+    };
+    step();
+  });
+}
+
+function load(id: Id): Promise<Loop | null> {
+  const hit = cache.get(id);
+  if (hit) return Promise.resolve(hit);
+  const inflight = pending.get(id);
+  if (inflight) return inflight;
+  const ctx = audio.context();
+  if (!ctx) return Promise.resolve(null);
+  const sr = ctx.sampleRate;
+  const w = getWorker();
+  const raw: Promise<{ left: Float32Array; right: Float32Array; rms: number } | null> = w
+    ? new Promise((resolve) => { waiters.set(id, resolve); w.postMessage({ id, sr }); }).then((r) => (r as { left: Float32Array } | null) ?? renderSliced(id, sr)) as Promise<{ left: Float32Array; right: Float32Array; rms: number } | null>
+    : renderSliced(id, sr);
+  const p = raw.then((r) => {
+    pending.delete(id);
+    if (!r) return null;
+    const buffer = ctx.createBuffer(2, r.left.length, sr);
+    buffer.copyToChannel(r.left as Float32Array<ArrayBuffer>, 0);
+    buffer.copyToChannel(r.right as Float32Array<ArrayBuffer>, 1);
+    const gain = Math.min(1, Math.pow(10, MUSIC_RMS_DB / 20) / Math.max(1e-4, r.rms));
+    const loop = { buffer, gain };
+    cache.set(id, loop);
+    return loop;
+  });
+  pending.set(id, p);
+  return p;
 }
 
 function stopCurrent(): void {
-  if (!current) return;
-  const { source } = current;
   const ctx = audio.context();
-  try {
-    if (ctx && source.gainNode) {
-      source.gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.25);
-      setTimeout(() => { try { source.stop(); } catch { /* */ } }, 900);
-    } else source.stop();
-  } catch { /* */ }
+  if (!current || !ctx) { current = null; return; }
+  const { src, gain } = current;
+  const t = ctx.currentTime;
+  gain.gain.cancelScheduledValues(t);
+  gain.gain.setValueAtTime(gain.gain.value, t);
+  gain.gain.linearRampToValueAtTime(0, t + FADE);
+  try { src.stop(t + FADE + 0.05); } catch { /* */ }
   current = null;
 }
 
-function start(act: number): void {
-  const Z = audio.zzfx();
-  if (!Z || audio.muted) return;
-  let buf = cache.get(act);
-  if (!buf) { const r = render(act); if (!r) return; buf = r; cache.set(act, buf); }
-  const source = Z.ZZFX.playSamples([Array.from(buf)], 0.42, 1, 0, true) as AudioBufferSourceNode & { gainNode?: GainNode };
-  const ctx = audio.context();
-  if (ctx && source.gainNode) {
-    const target = source.gainNode.gain.value;
-    source.gainNode.gain.setValueAtTime(0, ctx.currentTime);
-    source.gainNode.gain.linearRampToValueAtTime(target, ctx.currentTime + 1.2);
-  }
-  current = { source, act };
+function startLoop(id: number, loop: Loop): void {
+  const ctx = audio.context(), out = audio.musicBus();
+  if (!ctx || !out) return;
+  const src = ctx.createBufferSource();
+  src.buffer = loop.buffer;
+  src.loop = true;
+  const gain = ctx.createGain();
+  const t = ctx.currentTime;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(loop.gain, t + FADE);
+  src.connect(gain).connect(out);
+  src.start(t);
+  current = { id, src, gain };
+}
+
+function sync(): void {
+  if (wanted < 0 || audio.muted || !audio.context()) { if (audio.muted) stopCurrent(); return; }
+  if (current?.id === wanted) return;
+  const id = wanted;
+  void load(id).then((loop) => {
+    if (!loop || wanted !== id || current?.id === id || audio.muted) return;
+    stopCurrent();
+    startLoop(id, loop);
+    // Warm the rest of the soundtrack in the background, one song at a time.
+    void [...Object.keys(SONGS).map(Number), 'fanfare' as const].reduce<Promise<void>>((p, other) => p.then(() => load(other).then(() => undefined)), Promise.resolve());
+  });
+}
+
+/** Render the win fanfare as a one-shot buffer (used by audio.jingle). */
+export async function renderFanfare(ctx: AudioContext): Promise<AudioBuffer | null> {
+  const loop = await load('fanfare');
+  void ctx;
+  return loop?.buffer ?? null;
 }
 
 export const music = {
-  /** Play the loop for an act (0 = menus). Safe to call repeatedly. */
+  /** Play the loop for a slot: 0 title/editor, 1–3 acts, 4 credits/end. Safe to call repeatedly. */
   play(act: number): void {
-    wanted = act;
-    if (current?.act === act) return;
-    stopCurrent();
-    start(act);
+    wanted = SONGS[act] ? act : 0;
+    sync();
   },
   stop(): void { wanted = -1; stopCurrent(); },
   /** Re-sync after unlock or mute changes. */
-  refresh(): void {
-    if (audio.muted) { stopCurrent(); return; }
-    if (wanted >= 0 && current?.act !== wanted) { stopCurrent(); start(wanted); }
-  },
+  refresh(): void { sync(); },
 };
 
 audio.onMute(() => music.refresh());
