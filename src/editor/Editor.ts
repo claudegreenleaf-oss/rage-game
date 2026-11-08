@@ -220,6 +220,7 @@ export class Editor extends Phaser.Scene implements UiHost {
     const level = this.doc.level;
     try {
       this.world = new World(level);
+      this.world.step(0); // settle once so beams, plates and gates show their start state
     } catch {
       this.world = null;
       this.view = null;

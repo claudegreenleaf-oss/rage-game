@@ -67,10 +67,11 @@ export class Title extends Phaser.Scene {
 
     // taunt sign
     const post = this.add.graphics();
-    post.fillStyle(C.outline, 1); post.fillRoundedRect(455, GROUND - 46, 10, 46, 3);
-    post.fillStyle(C.woodDark, 1); post.fillRoundedRect(458, GROUND - 44, 4, 44, 2);
-    this.sign = new SignBubble(this, 20, 300);
-    this.sign.setPosition(460, GROUND - 96);
+    post.fillStyle(C.outline, 1); post.fillRoundedRect(165, GROUND - 46, 10, 46, 3);
+    post.fillStyle(C.woodDark, 1); post.fillRoundedRect(168, GROUND - 44, 4, 44, 2);
+    // Left of the menu so long taunts never run under the buttons.
+    this.sign = new SignBubble(this, 20, 270);
+    this.sign.setPosition(170, GROUND - 96);
     this.sign.setContent(TAUNTS[0]!);
     this.time.delayedCall(900, () => this.sign.show());
     this.time.addEvent({ delay: 3800, loop: true, callback: () => this.nextTaunt() });

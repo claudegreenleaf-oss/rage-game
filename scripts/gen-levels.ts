@@ -292,7 +292,7 @@ add('extra', fromAscii(`
   props: { s1: { text: { 0: 'Directed by: the signs' } } },
   objects: [
     { type: 'label', id: 'title', x: 15, y: 2, text: 'DIE TRYING', size: 2 },
-    { type: 'label', id: 'for', x: 15, y: 3.2, text: 'made for Thomas Greenleaf', size: 0.8 },
+    { type: 'label', id: 'for', x: 15, y: 3.2, text: 'made for Thomas Greenleaf', size: 1 },
     { type: 'label', id: 'n1', x: 6.5, y: 9.5, text: 'PIP · as themself' },
     { type: 'label', id: 'n2', x: 12.5, y: 7.5, text: 'BODIES · also Pip' },
     { type: 'label', id: 'n3', x: 18.5, y: 5.5, text: 'CODE · Claude' },
