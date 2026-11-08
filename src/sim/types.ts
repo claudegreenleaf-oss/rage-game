@@ -13,9 +13,10 @@ export const U = 240;
  * `#` solid · `.` empty · `X` fake (looks solid, isn't) · `=` troll tile (solid until an event)
  * `^ v > <` spikes (floor, ceiling, left wall, right wall) · `~` water
  * `}` conveyor right · `{` conveyor left (solid floor tiles; written `>>`/`<<` in the spec)
+ * `%` crumbling floor (solid; gives way a moment after something stands on it; back on respawn)
  */
-export type TileGlyph = '.' | '#' | 'X' | '=' | '^' | 'v' | '>' | '<' | '~' | '}' | '{';
-export const TILE_GLYPHS: readonly TileGlyph[] = ['.', '#', 'X', '=', '^', 'v', '>', '<', '~', '}', '{'];
+export type TileGlyph = '.' | '#' | 'X' | '=' | '^' | 'v' | '>' | '<' | '~' | '}' | '{' | '%';
+export const TILE_GLYPHS: readonly TileGlyph[] = ['.', '#', 'X', '=', '^', 'v', '>', '<', '~', '}', '{', '%'];
 
 export interface Pt { x: number; y: number }
 export interface TileRect { x: number; y: number; w: number; h: number }
@@ -23,7 +24,11 @@ export interface TileRect { x: number; y: number; w: number; h: number }
 export type Dir4 = 'up' | 'down' | 'left' | 'right';
 
 export interface SpawnObj { type: 'spawn'; id: string; x: number; y: number }
-export interface DoorObj { type: 'door'; id: string; x: number; y: number; runaway?: boolean }
+export interface DoorObj {
+  type: 'door'; id: string; x: number; y: number; runaway?: boolean;
+  /** In the connected world: where walking through the (won) door leads. */
+  to?: { room: string; exit: string };
+}
 export interface SignObj { type: 'sign'; id: string; x: number; y: number; text: Record<string, string> }
 export interface PopupObj { type: 'popup'; id: string; x: number; y: number }
 export interface DropperObj {
@@ -66,13 +71,26 @@ export interface LaserObj {
   hidden?: boolean;
 }
 export interface LabelObj { type: 'label'; id: string; x: number; y: number; text: string; size?: number }
+/** A hanging vine/cable (verlet rope) anchored under tile (x, y). Pip grabs it mid-air and swings. */
+export interface VineObj { type: 'vine'; id: string; x: number; y: number; len: number }
+/** A pushable, stackable crate (weight 2). Floats, rides belts, props presses open. Resets on respawn. */
+export interface CrateObj { type: 'crate'; id: string; x: number; y: number }
+/** A checkpoint: touching it makes it your respawn point in this room. */
+export interface BenchObj { type: 'bench'; id: string; x: number; y: number }
+/** A collectible (kept for the whole run): a lab note with lore, or a specimen jar. */
+export interface RelicObj { type: 'relic'; id: string; x: number; y: number; kind: 'note' | 'jar'; text?: string }
+/** Decorative light source (render only). */
+export interface LightObj { type: 'light'; id: string; x: number; y: number; color?: string; radius?: number; flicker?: boolean }
 
 export type LevelObject =
   | SpawnObj | DoorObj | SignObj | PopupObj | DropperObj | CrusherObj
-  | PlateObj | GateObj | PlatformObj | LaserObj | LabelObj;
+  | PlateObj | GateObj | PlatformObj | LaserObj | LabelObj
+  | VineObj | CrateObj | BenchObj | RelicObj | LightObj;
 export type ObjType = LevelObject['type'];
 
 export interface Zone { id: string; x: number; y: number; w: number; h: number }
+/** A passage to another room: a tile rect on this room's edge, linked to an exit in the target room. */
+export interface Exit { id: string; x: number; y: number; w: number; h: number; to: string; toExit: string }
 
 export type Trigger =
   | { type: 'playerEnters'; zone: string }
@@ -127,6 +145,14 @@ export interface LevelData {
   verified?: boolean;
   /** The playable credits roll. */
   credits?: boolean;
+  /** 'chamber' = a corpse puzzle room (the 12 levels); 'zone' = an exploration/traversal area. */
+  kind?: 'chamber' | 'zone';
+  /** Visual biome (1 sterile wing, 2 flooded bio-lab, 3 deep containment). */
+  biome?: number;
+  /** Movement abilities in this room. Wall-slide/jump defaults to on in zones, off in chambers. */
+  abilities?: { wallJump?: boolean };
+  /** Passages to other rooms (connected world only). */
+  exits?: Exit[];
   /** Intended deaths for the solution path (used to suggest a restart when the player is far past it). */
   par?: number;
 }
@@ -146,6 +172,9 @@ export interface Box { x: number; y: number; w: number; h: number }
 
 export interface Corpse extends Box {
   id: number;
+  /** Crates share corpse physics but never age, pin or count toward the cap. */
+  kind?: 'crate';
+  crateId?: string;
   stage: Stage;
   /** 'body' uses the stage shape; 'slab' is a crushed full-width 0.25-tall body. */
   shape: 'body' | 'slab';
@@ -177,6 +206,15 @@ export interface Player extends Box {
   bouncing: boolean;
   airTicks: number;
   dropThrough: number;
+  /** Side of the wall Pip is sliding on (-1 left, 1 right, 0 none) and grace ticks for a wall jump. */
+  wallDir: -1 | 0 | 1;
+  wallCoyote: number;
+  /** Ticks during which input toward the wall just jumped from is ignored. */
+  wallLock: number;
+  /** Hanging from a vine: its id and the segment Pip holds. */
+  hang: { vine: string; seg: number } | null;
+  /** Ticks before Pip can grab a vine again after letting go. */
+  regrab: number;
 }
 
 /** Things the renderer/audio react to. Emitted during a tick, cleared at the start of the next. */
@@ -212,4 +250,12 @@ export type SimEvent =
   | { t: 'doorScurry'; id: string }
   | { t: 'shake'; strength: number }
   | { t: 'sfx'; name: string }
-  | { t: 'win'; x: number; y: number };
+  | { t: 'win'; x: number; y: number }
+  | { t: 'wallJump'; x: number; y: number; dir: number }
+  | { t: 'wallSlide'; x: number; y: number }
+  | { t: 'grab'; vine: string }
+  | { t: 'release'; vine: string }
+  | { t: 'crumble'; cells: Pt[] }
+  | { t: 'collect'; id: string; kind: 'note' | 'jar' }
+  | { t: 'checkpoint'; id: string }
+  | { t: 'exit'; id: string };

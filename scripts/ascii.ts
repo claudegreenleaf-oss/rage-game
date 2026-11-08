@@ -2,7 +2,7 @@
 // Used by scripts/gen-levels.ts to author the shipped levels.
 import type { LevelData, LevelObject, TileGlyph } from '../src/sim/types';
 
-const TERRAIN = new Set(['#', '.', 'X', '=', '^', 'v', '>', '<', '~', '}', '{']);
+const TERRAIN = new Set(['#', '.', 'X', '=', '^', 'v', '>', '<', '~', '}', '{', '%']);
 
 export interface AsciiExtras {
   id: string;

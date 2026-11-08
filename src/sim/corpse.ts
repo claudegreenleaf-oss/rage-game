@@ -52,7 +52,7 @@ export function pinCorpse(w: World, c: Corpse, kind: 'floor' | 'wall', pcx: numb
 export function spawnCorpse(w: World, info: DeathInfo): void {
   if (info.kind === 'pit' || info.kind === 'laser') return; // no body, no aging
 
-  for (const c of [...w.corpses].sort((a, b) => a.born - b.born)) {
+  for (const c of [...w.corpses].filter((k) => k.kind !== 'crate').sort((a, b) => a.born - b.born)) {
     const next = (c.stage + 1) as number;
     if (next > 2) {
       w.corpses = w.corpses.filter((o) => o !== c);
@@ -65,8 +65,8 @@ export function spawnCorpse(w: World, info: DeathInfo): void {
     }
   }
   // Belt and braces: the stage rule already guarantees the cap.
-  while (w.corpses.length >= MAX_CORPSES) {
-    const oldest = w.corpses.reduce((a, b) => (a.born < b.born ? a : b));
+  while (w.corpses.filter((k) => k.kind !== 'crate').length >= MAX_CORPSES) {
+    const oldest = w.corpses.filter((k) => k.kind !== 'crate').reduce((a, b) => (a.born < b.born ? a : b));
     w.corpses = w.corpses.filter((o) => o !== oldest);
     w.fx.push({ t: 'dust', id: oldest.id, x: oldest.x + (oldest.w >> 1), y: oldest.y + (oldest.h >> 1) });
   }

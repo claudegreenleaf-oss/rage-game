@@ -14,7 +14,7 @@ import {
   type ObjectState,
 } from './hazards';
 import { EventEngine } from './triggers';
-import { cloneLevel } from './level';
+import { cloneLevel, isSolidGlyph } from './level';
 
 /** What an entity is resting on. */
 export type Support =
@@ -23,7 +23,19 @@ export type Support =
   | { kind: 'corpse'; id: number }
   | { kind: 'pip' };
 
-export const isSolidGlyph = (g: TileGlyph | undefined): boolean => g === '#' || g === '=' || g === '}' || g === '{';
+export { isSolidGlyph } from './level';
+
+export interface WorldOptions {
+  /** Shared set of collected relic ids. */
+  collected?: Set<string>;
+  /** Spawn here (top-left of Pip) instead of at the level's spawn; also becomes the checkpoint. */
+  entry?: { x: number; y: number };
+  /** Pip's velocity on entry (keeps momentum through room transitions). */
+  velocity?: { vx: number; vy: number };
+}
+
+/** Wall-slide/jump is on in exploration zones and off in puzzle chambers unless a level says otherwise. */
+export const canWallJump = (l: LevelData): boolean => l.abilities?.wallJump ?? l.kind === 'zone';
 
 export class World {
   readonly level: LevelData;
@@ -53,17 +65,29 @@ export class World {
   events: EventEngine;
   supports = new Map<number, Support>(); // key: corpse id, or -1 for Pip
   fx: SimEvent[] = [];
+  /** Respawn point override: a touched bench, or where Pip entered this room in the connected world. */
+  checkpoint: { x: number; y: number } | null = null;
+  /** Relics collected this run (shared across rooms by the campaign). */
+  collected: Set<string>;
+  /** Exit Pip walked into this tick (the campaign moves Pip to the linked room). */
+  exitHit: string | null = null;
+  /** Ticks after entering a room during which exits are ignored (so Pip doesn't bounce straight back). */
+  exitGrace = 0;
+  private lastBench: string | null = null;
   private prevInput = 0;
   private nextCorpseId = 1;
   private bornCounter = 0;
 
-  constructor(level: LevelData) {
+  constructor(level: LevelData, opts: WorldOptions = {}) {
     this.level = cloneLevel(level);
     this.W = level.width;
     this.H = level.height;
+    this.collected = opts.collected ?? new Set();
+    if (opts.entry) { this.checkpoint = opts.entry; this.exitGrace = 20; }
     this.events = new EventEngine(this);
     this.resetLevel();
     this.spawnPip();
+    if (opts.velocity) { this.pip.vx = opts.velocity.vx; this.pip.vy = opts.velocity.vy; this.pip.facing = opts.velocity.vx < 0 ? -1 : 1; }
     this.events.onLifeStart();
   }
 
@@ -73,6 +97,7 @@ export class World {
 
   step(input: number): void {
     this.fx = [];
+    this.exitHit = null;
     const pressed = input & ~this.prevInput;
     this.prevInput = input;
     this.tick++;
@@ -88,6 +113,8 @@ export class World {
     this.events.runScheduled();
     updateKinematics(this);
     if (this.pipAlive) updatePlayer(this, input, pressed);
+    if (this.exitGrace > 0) this.exitGrace--;
+    if (this.pipAlive) this.checkExitsAndPickups();
     updateCorpses(this);
     hazardChecks(this);
     this.computeSupports();
@@ -117,9 +144,45 @@ export class World {
     this.current = { dir: this.level.current?.dir ?? 1, speed: this.level.current?.speed ?? 0 };
     this.obj = buildObjects(this);
     this.lifeTick = 0;
+    this.resetCrates();
+  }
+
+  /** Crates are level objects: back to their start positions on every reset. */
+  private resetCrates(): void {
+    this.corpses = this.corpses.filter((c) => c.kind !== 'crate');
+    for (const o of this.level.objects) {
+      if (o.type !== 'crate') continue;
+      const c: Corpse = {
+        id: this.newCorpseId(), born: -1, stage: 0, shape: 'body', pin: null, floating: false, kind: 'crate', crateId: o.id,
+        x: o.x * U, y: o.y * U, w: U, h: U, vx: 0, vy: 0, px: o.x * U, py: o.y * U, shiver: 0, grounded: false,
+      };
+      this.corpses.push(c);
+    }
+  }
+
+  private checkExitsAndPickups(): void {
+    const p = this.pip;
+    if (this.exitGrace === 0)
+      for (const e of this.level.exits ?? []) {
+        if (overlaps(p, { x: e.x * U, y: e.y * U, w: e.w * U, h: e.h * U })) { this.exitHit = e.id; this.fx.push({ t: 'exit', id: e.id }); return; }
+      }
+    for (const o of this.level.objects) {
+      if (o.type === 'bench') {
+        const box = { x: o.x * U, y: o.y * U, w: U, h: U };
+        if (this.lastBench !== o.id && overlaps(p, box)) {
+          this.lastBench = o.id;
+          this.checkpoint = { x: o.x * U + ((U - PIP_W) >> 1), y: o.y * U + U - PIP_H };
+          this.fx.push({ t: 'checkpoint', id: o.id });
+        }
+      } else if (o.type === 'relic' && !this.collected.has(o.id)) {
+        const box = { x: o.x * U + 40, y: o.y * U + 40, w: U - 80, h: U - 80 };
+        if (overlaps(p, box)) { this.collected.add(o.id); this.fx.push({ t: 'collect', id: o.id, kind: o.kind }); }
+      }
+    }
   }
 
   spawnPoint(): { x: number; y: number } {
+    if (this.checkpoint) return { ...this.checkpoint };
     const s = this.level.objects.find((o) => o.type === 'spawn');
     const sx = s ? s.x : 1;
     const sy = s ? s.y : 1;
@@ -131,7 +194,7 @@ export class World {
     this.pip = {
       x: p.x, y: p.y, w: PIP_W, h: PIP_H, vx: 0, vy: 0, px: p.x, py: p.y, facing: 1,
       grounded: false, coyote: 0, jumpBuffer: 0, jumpHeld: false, jumping: false, bouncing: false,
-      airTicks: 0, dropThrough: 0,
+      airTicks: 0, dropThrough: 0, wallDir: 0, wallCoyote: 0, wallLock: 0, hang: null, regrab: 0,
     };
     this.pipAlive = true;
     // Never spawn inside a corpse: stand on top of it instead.

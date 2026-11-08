@@ -1,5 +1,8 @@
 import { TILE_GLYPHS, type LevelData, type LevelObject, type TileGlyph } from './types';
 
+/** Terrain glyphs that are solid. */
+export const isSolidGlyph = (g: string | undefined): boolean => g === '#' || g === '=' || g === '}' || g === '{' || g === '%';
+
 /** FNV-1a 32-bit hash of a string, as 8 hex chars. */
 export function hashString(s: string): string {
   let h = 0x811c9dc5;
@@ -41,8 +44,10 @@ export function validateLevel(raw: unknown): ValidationResult {
   const errors: string[] = [];
   const l = raw as Partial<LevelData>;
   if (!l || typeof l !== 'object') return { ok: false, errors: ['not an object'] };
-  if (typeof l.width !== 'number' || l.width < 4 || l.width > 32) errors.push('width must be 4..32');
-  if (typeof l.height !== 'number' || l.height < 4 || l.height > 18) errors.push('height must be 4..18');
+  const big = l.kind === 'zone';
+  const maxW = big ? 240 : 32, maxH = big ? 120 : 18;
+  if (typeof l.width !== 'number' || l.width < 4 || l.width > maxW) errors.push(`width must be 4..${maxW}`);
+  if (typeof l.height !== 'number' || l.height < 4 || l.height > maxH) errors.push(`height must be 4..${maxH}`);
   if (!Array.isArray(l.tiles) || l.tiles.length !== l.height) errors.push('tiles must have `height` rows');
   else
     l.tiles.forEach((row, i) => {

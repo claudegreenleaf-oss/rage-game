@@ -5,7 +5,7 @@ import {
   GROUND_ACCEL, GROUND_DECEL, JUMP_BUFFER, JUMP_V, MAX_FALL, PUSH_SPEED, RUN_SPEED, STEP_UP,
 } from './constants';
 import { overlaps, sweepX, sweepY } from './physics';
-import type { World } from './world';
+import { canWallJump, type World } from './world';
 import { pushCorpse } from './corpse';
 
 const approach = (v: number, target: number, step: number): number =>
@@ -30,17 +30,28 @@ export function pushable(c: Corpse): boolean {
   return !c.pin && !c.floating && c.stage !== 2 && c.h > STEP_UP;
 }
 
+const WALL_SLIDE_MAX = 20;
+const WALL_COYOTE = 6;
+const WALL_LOCK = 10;
+
 export function updatePlayer(w: World, input: number, pressed: number): void {
   const p = w.pip;
-  const dir = (input & Btn.Right ? 1 : 0) - (input & Btn.Left ? 1 : 0);
+  if (p.regrab > 0) p.regrab--;
+  if (p.wallLock > 0) p.wallLock--;
+  if (p.hang && hang(w, input, pressed)) return;
+
+  const rawDir = (input & Btn.Right ? 1 : 0) - (input & Btn.Left ? 1 : 0);
+  // Right after a wall jump, pushing back toward that wall does nothing for a moment.
+  const dir = p.wallLock > 0 && rawDir === p.wallDir ? 0 : rawDir;
   if (dir !== 0) p.facing = dir as -1 | 1;
 
-  // Horizontal velocity: snappy accel/decel, no ice-skating.
+  // Horizontal velocity: snappy accel/decel, no ice-skating. Extra speed from a swing carries a while.
   const target = dir * RUN_SPEED;
   let a: number;
   if (p.grounded) a = dir !== 0 && Math.sign(p.vx) !== -dir ? GROUND_ACCEL : GROUND_DECEL;
   else a = dir !== 0 ? AIR_ACCEL : AIR_DECEL;
-  p.vx = approach(p.vx, target, a);
+  if (!p.grounded && Math.abs(p.vx) > RUN_SPEED && Math.sign(p.vx) === dir) p.vx -= Math.sign(p.vx);
+  else p.vx = approach(p.vx, target, a);
 
   // Jump: buffer + coyote time.
   p.jumpHeld = (input & Btn.Jump) !== 0;
@@ -57,8 +68,24 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
     p.coyote = 0;
   }
 
+  // Wall slide (exploration zones only): pressing into a wall while falling slows the fall.
+  const walls = canWallJump(w.level);
+  let sliding = false;
+  if (walls && !p.grounded) {
+    if (rawDir !== 0 && touchingWall(w, rawDir) && p.vy > 0) { sliding = true; p.wallDir = rawDir as -1 | 1; p.wallCoyote = WALL_COYOTE; }
+    else if (p.wallCoyote > 0) p.wallCoyote--;
+  } else p.wallCoyote = 0;
+
   let jumpedNow = false;
-  if (p.jumpBuffer > 0 && p.coyote > 0) {
+  if (walls && p.jumpBuffer > 0 && p.coyote <= 0 && p.wallCoyote > 0 && !p.grounded) {
+    p.vy = -(JUMP_V - 4);
+    p.vx = -p.wallDir * RUN_SPEED;
+    p.facing = -p.wallDir as -1 | 1;
+    p.jumping = true; p.bouncing = false;
+    p.jumpBuffer = 0; p.wallCoyote = 0; p.wallLock = WALL_LOCK;
+    jumpedNow = true;
+    w.fx.push({ t: 'wallJump', x: p.x + (p.wallDir > 0 ? p.w : 0), y: p.y + (p.h >> 1), dir: -p.wallDir });
+  } else if (p.jumpBuffer > 0 && p.coyote > 0) {
     p.vy = -JUMP_V;
     p.jumping = true;
     p.bouncing = false;
@@ -70,6 +97,10 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
   } else {
     const cut = p.vy < 0 && p.jumping && !p.jumpHeld;
     p.vy = Math.min(p.vy + (cut ? GRAVITY_CUT : GRAVITY), MAX_FALL);
+  }
+  if (sliding && p.vy > WALL_SLIDE_MAX) {
+    p.vy = WALL_SLIDE_MAX;
+    if (w.tick % 6 === 0) w.fx.push({ t: 'wallSlide', x: p.x + (p.wallDir > 0 ? p.w : 0), y: p.y + p.h });
   }
   if (p.jumpBuffer > 0) p.jumpBuffer--;
   if (!p.grounded && !jumpedNow && p.coyote > 0) p.coyote--;
@@ -84,6 +115,71 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
   moveY(w);
   if (p.dropThrough > 0) p.dropThrough--;
   p.airTicks = p.grounded ? 0 : p.airTicks + 1;
+  if (!p.grounded && p.regrab === 0 && w.obj.vines.length) tryGrab(w);
+}
+
+/** Is there terrain (not a body) right beside Pip on that side? */
+function touchingWall(w: World, side: number): boolean {
+  const p = w.pip;
+  const probe = { x: side > 0 ? p.x + p.w : p.x - 2, y: p.y + 24, w: 2, h: p.h - 48 };
+  for (const s of w.solidsIn(probe, -1, false, false)) if (!s.oneWay && s.kind !== 'plate' && overlaps(probe, s)) return true;
+  return false;
+}
+
+function tryGrab(w: World): void {
+  const p = w.pip;
+  const cx = p.x + (p.w >> 1);
+  let best: { vine: string; seg: number; d: number } | null = null;
+  for (const v of w.obj.vines) {
+    for (let i = 2; i < v.pts.length; i++) {
+      const pt = v.pts[i]!;
+      const dx = Math.abs(pt.x - cx);
+      if (dx > 72 || pt.y < p.y - 24 || pt.y > p.y + p.h * 0.65) continue;
+      if (!best || dx < best.d) best = { vine: v.id, seg: i, d: dx };
+    }
+  }
+  if (!best) return;
+  const v = w.obj.vines.find((x) => x.id === best!.vine)!;
+  const pt = v.pts[best.seg]!;
+  pt.px = pt.x - p.vx * 0.9;
+  pt.py = pt.y - Math.max(0, p.vy) * 0.4;
+  p.hang = { vine: best.vine, seg: best.seg };
+  p.jumping = false; p.bouncing = false; p.coyote = 0;
+  w.fx.push({ t: 'grab', vine: v.id });
+}
+
+/** Hanging from a vine: pump with ←/→, slide down with ↓, leap off with jump. Returns true while hanging. */
+function hang(w: World, input: number, pressed: number): boolean {
+  const p = w.pip;
+  const v = w.obj.vines.find((x) => x.id === p.hang!.vine);
+  if (!v) { p.hang = null; return false; }
+  const dir = (input & Btn.Right ? 1 : 0) - (input & Btn.Left ? 1 : 0);
+  if (dir !== 0) p.facing = dir as -1 | 1;
+  if (input & Btn.Down && w.tick % 4 === 0) {
+    if (p.hang!.seg < v.pts.length - 1) p.hang!.seg++;
+    else { p.hang = null; p.regrab = 16; w.fx.push({ t: 'release', vine: v.id }); return false; }
+  }
+  const pt = v.pts[p.hang!.seg]!;
+  pt.px -= dir * 1.3; // pump the swing
+  pt.y += 1.2; // Pip's weight
+  const vx = pt.x - pt.px, vy = pt.y - pt.py;
+  if (pressed & Btn.Jump) {
+    p.hang = null;
+    p.regrab = 14;
+    p.vx = Math.max(-56, Math.min(56, Math.round(vx * 1.3) + dir * 8));
+    p.vy = -Math.round(JUMP_V * 0.9) + Math.min(0, Math.round(vy * 0.5));
+    p.jumping = true; p.jumpHeld = true; p.grounded = false;
+    w.fx.push({ t: 'release', vine: v.id });
+    w.fx.push({ t: 'jump', x: p.x + (p.w >> 1), y: p.y + p.h });
+    return true;
+  }
+  const nx = Math.round(pt.x - (p.w >> 1)), ny = Math.round(pt.y - 24);
+  const next = { x: nx, y: ny, w: p.w, h: p.h };
+  if (!w.isFree(next, -1)) { p.hang = null; p.regrab = 10; return false; }
+  p.x = nx; p.y = ny;
+  p.vx = Math.round(vx); p.vy = Math.round(vy);
+  p.grounded = false; p.airTicks = 0; p.jumpHeld = (input & Btn.Jump) !== 0;
+  return true;
 }
 
 /**

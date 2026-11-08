@@ -2,7 +2,7 @@
 import {
   U,
   type Box, type CrusherObj, type DoorObj, type DropperObj, type GateObj, type LaserObj, type LevelObject,
-  type PlateObj, type PlatformObj, type PopupObj, type Pt, type SignObj, type TileGlyph,
+  type PlateObj, type PlatformObj, type PopupObj, type Pt, type SignObj, type TileGlyph, type VineObj,
 } from './types';
 import {
   CRUSHER_HOLD, CRUSHER_RISE, CRUSHER_SLAM, DOOR_RUN, DOOR_SIGHT, DROPPER_G, DROPPER_MAX, DROPPER_SHAKE,
@@ -11,8 +11,12 @@ import {
 import { blocked, overlaps, overlapX, sweepX, sweepY, type Solid } from './physics';
 import { pinCorpse, type DeathInfo } from './corpse';
 import type { World } from './world';
+import { isSolidGlyph } from './level';
 
 export const PLATE_H = 12;
+/** Vine segment length (units). */
+export const VINE_SEG = 120;
+const CRUMBLE_TICKS = 24;
 export const PLATFORM_H = 60;
 export const BEAM_W = 72;
 export const DOOR_W = 192;
@@ -31,6 +35,8 @@ export interface RtLaser { def: LaserObj; id: string; mode: 'on' | 'off' | 'blin
 export interface RtDoor extends Box { def: DoorObj; id: string; vy: number; vx: number; state: 'idle' | 'run' | 'tremble' | 'hop' | 'path'; hopT: number; path: Pt[]; seg: number; speed: number; cooldown: number; facing: -1 | 1 }
 export interface RtPopup { def: PopupObj; id: string; up: boolean }
 export interface RtSign { def: SignObj; id: string; override: string | null }
+export interface VinePt { x: number; y: number; px: number; py: number }
+export interface RtVine { def: VineObj; id: string; pts: VinePt[]; seg: number }
 
 export class ObjectState {
   droppers: RtDropper[] = [];
@@ -43,6 +49,9 @@ export class ObjectState {
   doors: RtDoor[] = [];
   popups: RtPopup[] = [];
   signs: RtSign[] = [];
+  vines: RtVine[] = [];
+  /** Crumbling-floor cells being stood on: cell key -> ticks. */
+  crumble = new Map<number, number>();
   byId = new Map<string, unknown>();
 
   get<T>(id: string): T | undefined { return this.byId.get(id) as T | undefined; }
@@ -52,7 +61,6 @@ export class ObjectState {
     const out: Solid[] = [];
     for (const d of this.droppers) if (d.state === 'idle' || d.state === 'shake' || d.state === 'armed') out.push({ x: d.x, y: d.y, w: d.w, h: d.h, kind: 'dropper', oneWay: false, id: d.id });
     for (const c of this.crushers) out.push({ x: c.x, y: c.y, w: c.w, h: c.h, kind: 'crusher', oneWay: false, id: c.id });
-    for (const p of this.plates) out.push({ x: p.x, y: p.y, w: p.w, h: p.h, kind: 'plate', oneWay: false, id: p.id });
     for (const g of this.gates) { const b = gateBox(g); if (b.h > 0) out.push({ ...b, kind: 'gate', oneWay: false, id: g.id }); }
     for (const p of this.platforms) out.push({ x: p.x, y: p.y, w: p.w, h: p.h, kind: 'platform', oneWay: !!p.def.oneWay, id: p.id });
     this.movers.forEach((m, i) => {
@@ -102,6 +110,14 @@ export function buildObjects(w: World): ObjectState {
       }
       case 'popup': { const p: RtPopup = { def: o, id: o.id, up: false }; s.popups.push(p); s.byId.set(o.id, p); break; }
       case 'sign': { const g: RtSign = { def: o, id: o.id, override: null }; s.signs.push(g); s.byId.set(o.id, g); break; }
+      case 'vine': {
+        const n = Math.max(2, Math.round(o.len * 2));
+        const ax = o.x * U + (U >> 1), ay = (o.y + 1) * U;
+        const pts: VinePt[] = [];
+        for (let i = 0; i <= n; i++) pts.push({ x: ax, y: ay + i * VINE_SEG, px: ax, py: ay + i * VINE_SEG });
+        const v: RtVine = { def: o, id: o.id, pts, seg: VINE_SEG };
+        s.vines.push(v); s.byId.set(o.id, v); break;
+      }
       default: break;
     }
   }
@@ -183,6 +199,8 @@ export function updateKinematics(w: World): void {
     if (m.ox === t.x && m.oy === t.y) { if (m.seg < m.pts.length - 1) m.seg++; else m.done = true; }
   });
 
+  updateVines(w);
+  updateCrumble(w);
   updateDroppers(w);
   updateCrushers(w);
   updateDoors(w);
@@ -243,6 +261,57 @@ function updateDroppers(w: World): void {
   }
 }
 
+/** Verlet ropes. Floats are fine: JS arithmetic is deterministic, and nothing here touches Math.random. */
+function updateVines(w: World): void {
+  for (const v of w.obj.vines) {
+    const pts = v.pts;
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i]!;
+      const vx = (p.x - p.px) * 0.992, vy = (p.y - p.py) * 0.992;
+      p.px = p.x; p.py = p.y;
+      p.x += vx; p.y += vy + 2.2;
+    }
+    for (let it = 0; it < 10; it++) {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i]!, b = pts[i + 1]!;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const diff = (d - v.seg) / d;
+        if (i === 0) { b.x -= dx * diff; b.y -= dy * diff; }
+        else { a.x += dx * diff * 0.5; a.y += dy * diff * 0.5; b.x -= dx * diff * 0.5; b.y -= dy * diff * 0.5; }
+      }
+    }
+    // Keep the rope out of solid terrain.
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i]!;
+      if (isSolidGlyph(w.tileAt(Math.floor(p.x / U), Math.floor(p.y / U)))) { p.x = p.px; p.y = p.py; }
+    }
+  }
+}
+
+/** Crumbling floor gives way after being stood on for a moment. */
+function updateCrumble(w: World): void {
+  const touched = new Set<number>();
+  for (const s of w.supports.values()) if (s.kind === 'tile' && s.glyph === '%') touched.add(s.cy * 1000 + s.cx);
+  const fall: Pt[] = [];
+  for (const k of touched) {
+    const t = (w.obj.crumble.get(k) ?? 0) + 1;
+    w.obj.crumble.set(k, t);
+    if (t >= CRUMBLE_TICKS) {
+      const cx = k % 1000, cy = Math.floor(k / 1000);
+      // Neighbouring crumble tiles in the same row go too.
+      for (let x = cx; isSolidGlyph(w.tileAt(x, cy)) && w.tileAt(x, cy) === '%'; x--) fall.push({ x, y: cy });
+      for (let x = cx + 1; w.tileAt(x, cy) === '%'; x++) fall.push({ x, y: cy });
+    }
+  }
+  if (fall.length) {
+    for (const c of fall) { w.setTile(c.x, c.y, '.'); w.obj.crumble.delete(c.y * 1000 + c.x); }
+    w.fx.push({ t: 'crumble', cells: fall });
+    w.fx.push({ t: 'tilesDrop', cells: fall });
+    w.fx.push({ t: 'tiles' });
+  }
+}
+
 export function startDropper(w: World, d: RtDropper): void {
   if (d.state !== 'idle') return;
   d.state = 'shake';
@@ -262,7 +331,7 @@ function clearBelow(w: World, d: RtDropper, targetY: number): boolean {
   const r0 = Math.floor((d.y + d.h) / U), r1 = Math.floor((targetY - 1) / U);
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
     const g = w.tileAt(c, r);
-    if (g === '#' || g === '=' || g === '}' || g === '{') return false;
+    if (isSolidGlyph(g)) return false;
   }
   return true;
 }
@@ -289,7 +358,7 @@ export function fireCrusher(c: RtCrusher): void {
 function slamCrusher(w: World, c: RtCrusher): void {
   const region = { x: c.x, y: c.y + c.h, w: c.w, h: CRUSHER_SLAM };
   // Flatten every body in the column below as soon as the press reaches any of them.
-  const column = w.corpses.filter((k) => overlapX(k, c) && k.y + k.h > c.y + c.h);
+  const column = w.corpses.filter((k) => k.kind !== 'crate' && overlapX(k, c) && k.y + k.h > c.y + c.h);
   if (column.some((k) => overlaps(k, region))) {
     let any = false;
     for (const k of column) {
@@ -317,7 +386,7 @@ function slamCrusher(w: World, c: RtCrusher): void {
     pipHit = true;
   }
   const solids = w.solidsAround(c, 0, CRUSHER_SLAM, -999, false, false).filter((s) => s.id !== c.id);
-  for (const k of w.corpses) if ((k.shape === 'slab' || k.pin) && overlapX(k, c) && k.y >= c.y + c.h) solids.push({ x: k.x, y: k.y, w: k.w, h: k.h, kind: 'corpse', oneWay: false, id: k.id });
+  for (const k of w.corpses) if ((k.shape === 'slab' || k.pin || k.kind === 'crate') && overlapX(k, c) && k.y >= c.y + c.h) solids.push({ x: k.x, y: k.y, w: k.w, h: k.h, kind: 'corpse', oneWay: false, id: k.id });
   if (pipHit) solids.push({ x: w.pip.x, y: w.pip.y, w: w.pip.w, h: w.pip.h, kind: 'pip', oneWay: false, id: -1 });
   const { d, hit } = sweepY(c, CRUSHER_SLAM, solids);
   c.y += d;
@@ -460,7 +529,7 @@ function computeBeam(w: World, l: LaserObj): Box {
   const x0 = cxx, y0 = cyy;
   while (n < max) {
     const g = w.tileAt(cxx, cyy);
-    if (g === '#' || g === '=' || g === '}' || g === '{' || cyy >= w.H) break;
+    if (isSolidGlyph(g) || cyy >= w.H) break;
     n++; cxx += ddx; cyy += ddy;
   }
   if (n === 0) return { x: 0, y: 0, w: 0, h: 0 };
@@ -588,7 +657,7 @@ export function hazardChecks(w: World): void {
     }
     if (!w.corpses.includes(c)) continue;
     if (c.y > w.H * U + U) { w.corpses = w.corpses.filter((o) => o !== c); continue; }
-    if (c.pin || c.floating) continue;
+    if (c.pin || c.floating || c.kind === 'crate') continue;
     const hits = spikesTouching(w, c).filter((h) => h.kind !== 'ceiling');
     const h = hits[0];
     if (h) pinCorpse(w, c, h.kind === 'floor' ? 'floor' : 'wall', h.cx, h.cy);
@@ -599,13 +668,17 @@ export function hazardChecks(w: World): void {
 // Plates & gates
 // ---------------------------------------------------------------------------
 
+/** Plates are flush sensors in the floor: whatever rests on the floor tile under one presses it. */
+export function plateOf(w: World, s: { kind: string; cx?: number; cy?: number } | null): RtPlate | undefined {
+  if (!s || s.kind !== 'tile' || s.cx === undefined || s.cy === undefined) return undefined;
+  const cx = s.cx, row = s.cy - 1;
+  return w.obj.plates.find((p) => p.def.y === row && cx >= p.def.x && cx < p.def.x + p.def.w);
+}
+
 export function updatePlates(w: World, silent = false): void {
   for (const p of w.obj.plates) {
     let weight = 0;
-    for (const key of w.supports.keys()) {
-      const root = w.rootSupport(key);
-      if (root?.kind === 'obj' && root.id === p.id) weight += w.weightOf(key);
-    }
+    for (const key of w.supports.keys()) if (plateOf(w, w.rootSupport(key)) === p) weight += w.weightOf(key);
     p.weight = weight;
     const pressed = weight >= p.def.need;
     p.changed = !silent && pressed !== p.pressed;

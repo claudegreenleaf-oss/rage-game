@@ -2,7 +2,7 @@
 import { U, type Action, type LevelEvent, type Zone } from './types';
 import { overlaps } from './physics';
 import {
-  fireCrusher, moveDoor, startDropper,
+  fireCrusher, moveDoor, plateOf, startDropper,
   type RtCrusher, type RtDoor, type RtDropper, type RtGate, type RtLaser, type RtPlatform, type RtPopup, type RtSign,
 } from './hazards';
 import { tps } from './constants';
@@ -65,6 +65,8 @@ export class EventEngine {
     // What Pip stands on.
     const onNow = new Set<string>();
     if (w.pipAlive) {
+      const plate = plateOf(w, w.rootSupport(-1));
+      if (plate) onNow.add(plate.id);
       for (const s of w.supportChain(-1)) {
         if (s.kind === 'obj') onNow.add(s.id);
         if (s.kind === 'corpse') {
