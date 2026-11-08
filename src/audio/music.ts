@@ -1,7 +1,7 @@
 // Music playback. Every song is rendered once off the main thread (a Web Worker; a sliced main-thread
 // fallback if workers are unavailable), cached, and played as a seamless looping buffer through the
 // music bus, crossfading between songs.
-//   music.play(slot)      0 title/editor · 1–3 acts · 4 credits/end · 5–7 zone themes (see SLOTS)
+//   music.play(slot)      0 title/editor · 1–3 acts · 4 credits/end · 5–10 zone themes (see SLOTS)
 //   music.playCustom(s)   a level's own SongData theme, looped like a slot
 //   music.previewCustom(s) / music.stopPreview()   audition a song in the editor over the current music
 import type { SongData } from '../sim/types';
@@ -12,8 +12,10 @@ import { SLOTS, songKey } from './songs';
 /** Music sits under the effects: every loop is levelled to this RMS (dBFS) on the music bus. */
 const MUSIC_RMS_DB = -28.5;
 const FADE = 1.2;
-/** The felt piano is low-passed, so 32 kHz loses nothing and renders faster. */
-const PIANO_SR = 32000;
+/** The felt piano is low-passed at 6.5 kHz, so 24 kHz loses nothing, renders faster and halves memory. */
+const PIANO_SR = 24000;
+/** Rendered songs kept in memory (a whole piece is tens of MB), least recently used evicted first. */
+const MAX_CACHED = 3;
 
 interface Loop { buffer: AudioBuffer; gain: number }
 type Raw = { left: Float32Array; right: Float32Array; rms: number };
@@ -66,7 +68,7 @@ function renderSliced(job: Job, sr: number): Promise<RenderOut | null> {
 
 function load(key: string, job: Job): Promise<Loop | null> {
   const hit = cache.get(key);
-  if (hit) return Promise.resolve(hit);
+  if (hit) { touch(key); return Promise.resolve(hit); }
   const inflight = pending.get(key);
   if (inflight) return inflight;
   const ctx = audio.context();
@@ -84,14 +86,24 @@ function load(key: string, job: Job): Promise<Loop | null> {
     const gain = Math.min(1, Math.pow(10, MUSIC_RMS_DB / 20) / Math.max(1e-4, r.rms));
     const loop = { buffer, gain };
     cache.set(key, loop);
-    // Custom songs can pile up while composing: keep the cache bounded.
-    const customs = [...cache.keys()].filter((k) => k.startsWith('custom:'));
-    if (customs.length > 12) cache.delete(customs[0]!);
+    evict();
     return loop;
   });
   pending.set(key, p);
   return p;
 }
+
+/** Drop least-recently-used songs beyond the budget (never the playing or previewing one). */
+function evict(): void {
+  const keep = new Set([current?.key, preview?.key, wanted?.key, 'fanfare']);
+  for (const k of [...cache.keys()]) {
+    if (cache.size - (cache.has('fanfare') ? 1 : 0) <= MAX_CACHED) break;
+    if (!keep.has(k)) cache.delete(k);
+  }
+}
+
+/** Mark a cached song as recently used. */
+function touch(key: string): void { const v = cache.get(key); if (v) { cache.delete(key); cache.set(key, v); } }
 
 function fadeOut(node: { src: AudioBufferSourceNode; gain: GainNode } | null, secs = FADE): void {
   const ctx = audio.context();
@@ -119,12 +131,11 @@ function startLoop(key: string, loop: Loop, out: AudioNode, fade = FADE): { key:
 }
 
 let warmed = false;
+/** After the first song starts, pre-render the small win fanfare (songs render on demand). */
 function warmRest(): void {
   if (warmed) return;
   warmed = true;
-  const ids = Object.keys(SLOTS).map(Number);
-  void ids.reduce<Promise<unknown>>((p, id) => p.then(() => load(slotKey(id), { kind: 'slot', id })), Promise.resolve())
-    .then(() => load('fanfare', { kind: 'fanfare' }));
+  void load('fanfare', { kind: 'fanfare' });
 }
 
 function sync(): void {

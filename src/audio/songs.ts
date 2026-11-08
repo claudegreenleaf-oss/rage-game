@@ -3,24 +3,29 @@
 import type { SongData } from '../sim/types';
 import { barsToNotes, DRUMS, type Song } from './synth';
 import { GYMNOPEDIE_1, GYMNOPEDIE_2, GYMNOPEDIE_3, OGIVE_1, OGIVE_2, OGIVE_3, OGIVE_4, type Piece } from './satie';
+import { GNOSSIENNE_1, GNOSSIENNE_2, GNOSSIENNE_3 } from './satie-gnossiennes';
 import type { PianoNote, PianoOpts } from './piano';
 
 export interface PianoSong { name: string; piece: Piece; bpm: number; opts: PianoOpts }
 
 /**
  * Music slots. 0 title & editor, 1–3 the three acts, 4 credits & end, 5+ zone themes.
- * Gymnopédies: Lent et douloureux / triste / grave, at slow tempi in 3/4.
+ * Gymnopédies: Lent et douloureux / triste / grave, in 3/4. Gnossiennes: Lent / Avec étonnement / Lent.
  * The Ogives keep the tempo changes written into their transcriptions.
+ * Gnossienne note data is CC BY-SA 4.0 (see satie-gnossiennes.ts); everything else is public domain.
  */
 export const SLOTS: Record<number, PianoSong> = {
   0: { name: 'Gymnopédie No. 1', piece: GYMNOPEDIE_1, bpm: 70, opts: { brightness: 0.35, wet: 0.24, rt60: 2.3 } },
   1: { name: 'Gymnopédie No. 2', piece: GYMNOPEDIE_2, bpm: 66, opts: { brightness: 0.4, wet: 0.22, rt60: 2.1 } },
-  2: { name: 'Gymnopédie No. 3', piece: GYMNOPEDIE_3, bpm: 62, opts: { brightness: 0.28, wet: 0.26, rt60: 2.5 } },
-  3: { name: 'Ogive No. 1', piece: OGIVE_1, bpm: 60, opts: { brightness: 0.3, wet: 0.3, rt60: 3.0, pedal: 0.25 } },
-  4: { name: 'Gymnopédie No. 1 (reprise)', piece: GYMNOPEDIE_1, bpm: 64, opts: { brightness: 0.25, wet: 0.3, rt60: 2.8, pedal: 0.5 } },
-  5: { name: 'Ogive No. 2', piece: OGIVE_2, bpm: 60, opts: { brightness: 0.3, wet: 0.3, rt60: 3.0, pedal: 0.25 } },
-  6: { name: 'Ogive No. 3', piece: OGIVE_3, bpm: 60, opts: { brightness: 0.28, wet: 0.3, rt60: 3.0, pedal: 0.25 } },
-  7: { name: 'Ogive No. 4', piece: OGIVE_4, bpm: 60, opts: { brightness: 0.3, wet: 0.3, rt60: 3.0, pedal: 0.25 } },
+  2: { name: 'Gnossienne No. 1', piece: GNOSSIENNE_1, bpm: 80, opts: { brightness: 0.3, wet: 0.26, rt60: 2.5, pedal: 0.3 } },
+  3: { name: 'Gnossienne No. 3', piece: GNOSSIENNE_3, bpm: 70, opts: { brightness: 0.3, wet: 0.27, rt60: 2.6, pedal: 0.3 } },
+  4: { name: 'Gnossienne No. 2', piece: GNOSSIENNE_2, bpm: 80, opts: { brightness: 0.32, wet: 0.28, rt60: 2.6, pedal: 0.3 } },
+  5: { name: 'Gymnopédie No. 3', piece: GYMNOPEDIE_3, bpm: 62, opts: { brightness: 0.28, wet: 0.26, rt60: 2.5 } },
+  6: { name: 'Ogive No. 1', piece: OGIVE_1, bpm: 60, opts: { brightness: 0.3, wet: 0.3, rt60: 3.0, pedal: 0.25 } },
+  7: { name: 'Gymnopédie No. 1 (reprise)', piece: GYMNOPEDIE_1, bpm: 64, opts: { brightness: 0.25, wet: 0.3, rt60: 2.8, pedal: 0.5 } },
+  8: { name: 'Ogive No. 2', piece: OGIVE_2, bpm: 60, opts: { brightness: 0.3, wet: 0.3, rt60: 3.0, pedal: 0.25 } },
+  9: { name: 'Ogive No. 3', piece: OGIVE_3, bpm: 60, opts: { brightness: 0.28, wet: 0.3, rt60: 3.0, pedal: 0.25 } },
+  10: { name: 'Ogive No. 4', piece: OGIVE_4, bpm: 60, opts: { brightness: 0.3, wet: 0.3, rt60: 3.0, pedal: 0.25 } },
 };
 
 /** Notes of a piece in seconds at the slot's tempo. */
