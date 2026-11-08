@@ -2,6 +2,7 @@
 // the draft, plus editor previews of decor layers and images, and overlays: grid, hidden traps, zones,
 // exits, links, lift paths, selection, handles and brush previews. The camera pans and zooms freely.
 import Phaser from 'phaser';
+import type { Overlay } from '../scenes/Overlay';
 import {
   DECOR_IDS, U, decorIndex,
   type Action, type LevelData, type LevelObject, type PixelArt, type Pt, type TileRect, type Trigger,
@@ -111,6 +112,11 @@ export class Editor extends Phaser.Scene implements UiHost {
 
   constructor() { super('Editor'); }
 
+  private openIris(): void {
+    const ov = this.scene.get('Overlay') as Overlay | null;
+    ov?.irisOpen?.(GAME_W / 2, GAME_H / 2, 450);
+  }
+
   create(): void {
     this.doc = new EditorDoc(EditorDoc.loadDraft() ?? blankLevel());
     ensureDecorTextures(this.textures);
@@ -128,7 +134,9 @@ export class Editor extends Phaser.Scene implements UiHost {
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, dx: number, dy: number) => this.onWheel(p, dx, dy));
     this.input.on('gameout', () => { this.hover = null; });
     this.attach();
-    this.events.on('wake', () => { this.attach(); this.ui.setVisible(true); this.needsRebuild = true; this.setMood(); setOverrides(undefined); });
+    this.events.on('wake', () => { this.attach(); this.ui.setVisible(true); this.needsRebuild = true; this.setMood(); setOverrides(undefined); this.openIris(); });
+    // The title (and a finished playtest) close the iris wipe before switching here: open it, or the canvas stays black.
+    this.openIris();
     this.events.on('sleep', () => { this.detach(); this.ui.setVisible(false); });
     this.events.once('shutdown', () => { this.detach(); this.ui.destroy(); this.view?.destroy(); this.dropArt(); });
     this.setMood();
