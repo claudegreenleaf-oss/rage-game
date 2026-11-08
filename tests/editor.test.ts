@@ -6,6 +6,7 @@ import { TEMPLATES, emptySong, noteAt, normalizeSong, songKey, toggleNote } from
 import { validateLevel } from '../src/sim/level';
 import { World } from '../src/sim/world';
 import { DECOR_IDS, decorChar } from '../src/sim/types';
+import { OBJECTS } from '../src/editor/tools';
 
 describe('editor model', () => {
   it('paints terrain and decor layers, fills, draws rectangles, and undoes it all', () => {
@@ -138,5 +139,21 @@ describe('composer songs', () => {
     }
     const satie = TEMPLATES.find((t) => t.id === 'satie')!.make();
     expect(satie.steps % 12).toBe(0); // 3/4
+  });
+});
+
+describe('editor light sensors and dark rooms', () => {
+  it('places a sensor that opens a shutter in the sim, and deleting it unwires the shutter', () => {
+    const d = new EditorDoc(blankLevel(16, 8));
+    const item = OBJECTS.find((o) => o.id === 'sensor')!;
+    const sensor = item.make!(d.newId(item.idPrefix!), 9, 5);
+    expect(sensor).toEqual({ type: 'sensor', id: 'sn1', x: 9, y: 5 });
+    d.edit((l) => { l.objects.push(sensor, { type: 'gate', id: 'g1', x: 12, y: 5, h: 2, plate: 'sn1' }); l.dark = true; });
+    expect(validateLevel(d.level).ok).toBe(true);
+    const w = new World(d.level);
+    w.step(0);
+    expect(w.obj.plates.find((p) => p.id === 'sn1')?.light).toBe(true);
+    d.edit(() => { d.removeObject('sn1'); });
+    expect(d.level.objects.find((o) => o.id === 'g1')).not.toHaveProperty('plate');
   });
 });

@@ -42,6 +42,8 @@ export interface EdState {
   locked: Record<LayerId, boolean>;
   opacity: Record<LayerId, number>;
   grid: boolean;
+  /** Show a dark room the way players see it (otherwise the editor lights it so you can work). */
+  previewDark: boolean;
   selection: Selection;
   marquee: TileRect | null;
   hasClip: boolean;
@@ -538,7 +540,9 @@ export class EditorUI {
   }
 
   private plateOptions(): Array<[string, string]> {
-    return [['', '— none —'], ...this.host.doc.objectsOfType('plate').map((p) => [p.id, `${p.id} (needs ${p.need})`] as [string, string])];
+    const { doc } = this.host;
+    return [['', '— none —'], ...doc.objectsOfType('plate').map((p) => [p.id, `${p.id} (needs ${p.need})`] as [string, string]),
+      ...doc.objectsOfType('sensor').map((p) => [p.id, `${p.id} (light sensor)`] as [string, string])];
   }
 
   private inspectObject(o: LevelObject): HTMLElement[] {
@@ -573,6 +577,11 @@ export class EditorUI {
           this.row('Width', this.num(o.w, (v) => this.set(id, typed('plate', (x) => { x.w = v; })), 1, 8)),
           this.row('Needs weight', this.num(o.need, (v) => this.set(id, typed('plate', (x) => { x.need = v; })), 1, 12)),
           h('div', { class: 'ed-muted' }, 'Pip 1 · Fresh 2 · Rot 1 · Skeleton 0 · crate 2. Weight passes down stacks.'));
+        break;
+      case 'sensor':
+        out.push(this.header('Light sensor', id, del), this.pos(o),
+          h('div', { class: 'ed-muted' }, 'Pressed while Pip’s flashlight shines on it, with nothing solid in between (range 9 tiles, about a 64° cone). Pick it as “Opened by” on a shutter, as a laser’s pad, or link events with the Link tool.'),
+          ...(this.host.doc.level.dark ? [] : [h('div', { class: 'ed-muted' }, 'Tip: sensors shine brightest in a dark room (Level → Dark room).')]));
         break;
       case 'gate':
         out.push(this.header('Blast shutter', id, del), this.pos(o),
@@ -714,6 +723,9 @@ export class EditorUI {
         h('button', { title: st.visible[L.id] ? 'Hide' : 'Show', onclick: (e) => { e.stopPropagation(); st.visible[L.id] = !st.visible[L.id]; this.refresh(); } }, st.visible[L.id] ? '👁' : '◌'),
         h('button', { title: st.locked[L.id] ? 'Unlock' : 'Lock', onclick: (e) => { e.stopPropagation(); st.locked[L.id] = !st.locked[L.id]; this.refresh(); } }, st.locked[L.id] ? '🔒' : '🔓'))),
       h('div', { class: 'ed-muted' }, 'Click a layer to paint on it. Hidden and locked layers can’t be edited. Opacity only affects this preview.'),
+      h('h3', { class: 'ed-h', style: 'margin-top:10px' }, 'Preview'),
+      this.row('Grid', this.check(st.grid, (v) => { st.grid = v; })),
+      this.row('Darkness', this.check(st.previewDark, (v) => { st.previewDark = v; }), h('span', { class: 'ed-muted' }, this.host.doc.level.dark ? 'see the dark room as players do' : 'only for dark rooms')),
     ];
   }
 
@@ -734,6 +746,7 @@ export class EditorUI {
       this.row('Kind', this.select(kindOf(l), [['chamber', 'Chamber (one screen puzzle)'], ['zone', 'Zone (big, scrolling)']], (v) => this.host.doc.setKind(v as Kind))),
       this.row('Width', ...this.slider(l.width, MIN_W, lim.w, 1, (v) => doc.resize(v, l.height), (x) => String(x))),
       this.row('Height', ...this.slider(l.height, MIN_H, lim.h, 1, (v) => doc.resize(l.width, v), (x) => String(x))),
+      this.row('Dark room', this.check(!!l.dark, (v) => doc.edit((x) => { if (v) x.dark = true; else delete x.dark; })), h('span', { class: 'ed-muted' }, 'only the flashlight and lights see')),
       this.row('Look', this.select(String(l.biome ?? l.act ?? 1), [['1', 'Sterile wing'], ['2', 'Flooded bio-lab'], ['3', 'Deep containment']], (v) => doc.edit((x) => { x.biome = Number(v); x.act = Number(v); x.palette = Number(v); }))),
       this.row('Music', this.select(music, [['0', 'Title theme'], ['1', 'Act 1'], ['2', 'Act 2'], ['3', 'Act 3'], ['4', 'Credits'], ['custom', 'Your theme (composer)']], (v) => {
         if (v === 'custom') { this.openMusicStudio(); return; }
@@ -781,7 +794,7 @@ export class EditorUI {
     const t = ev.trigger;
     const zones: Array<[string, string]> = doc.level.zones.map((z) => [z.id, z.id]);
     const objs: Array<[string, string]> = [...doc.level.objects.filter((o) => o.type !== 'spawn' && o.type !== 'label').map((o) => [o.id, `${o.id} (${o.type})`] as [string, string]), ['@raft', 'any raft'], ['@corpse', 'any body']];
-    const plates = doc.objectsOfType('plate').map((p) => [p.id, p.id] as [string, string]);
+    const plates = [...doc.objectsOfType('plate').map((p) => [p.id, p.id] as [string, string]), ...doc.objectsOfType('sensor').map((p) => [p.id, `${p.id} (light)`] as [string, string])];
     const trigTypes = Object.entries(TRIGGER_LABEL) as Array<[Trigger['type'], string]>;
     const changeType = (type: Trigger['type']) => this.editEvent(i, (e) => {
       switch (type) {

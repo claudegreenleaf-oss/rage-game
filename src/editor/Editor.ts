@@ -31,6 +31,8 @@ import { encodeLevel, shareUrl } from './share';
 
 const T = TILE; // world pixels per tile
 const MIN_Z = 0.25, MAX_Z = 10;
+/** Colour of the editor canvas around the room. */
+const WORKSPACE = 0x1b2127;
 const VIEW = { x: LEFT_W, y: TOP_H, w: GAME_W - LEFT_W - RIGHT_W, h: GAME_H - TOP_H - BOTTOM_H };
 
 type Drag =
@@ -56,7 +58,7 @@ const isGrid = (l: LayerId): l is GridLayer => l === 'terrain' || l === 'bg' || 
 function allLevels(): LevelData[] {
   const mod = LV as unknown as Record<string, unknown>;
   const out: LevelData[] = [...((mod.LEVELS as LevelData[] | undefined) ?? [])];
-  for (const k of ['ACT4_LEVELS', 'WORLD_ROOMS', 'ZONES', 'ROOMS']) {
+  for (const k of ['ACT4_LEVELS', 'WORLD_LEVELS', 'WORLD_ROOMS', 'ZONES', 'ROOMS']) {
     const v = mod[k];
     if (Array.isArray(v)) for (const l of v as LevelData[]) if (l && l.id && l.tiles && !out.some((o) => o.id === l.id)) out.push(l);
   }
@@ -74,7 +76,7 @@ export class Editor extends Phaser.Scene implements UiHost {
     visible: { terrain: true, objects: true, bg: true, fg: true, images: true, zones: true },
     locked: { terrain: false, objects: false, bg: false, fg: false, images: false, zones: false },
     opacity: { terrain: 1, objects: 1, bg: 1, fg: 1, images: 1, zones: 1 },
-    grid: true, selection: null, marquee: null, hasClip: false, rightTab: 'inspect', search: '',
+    grid: true, previewDark: false, selection: null, marquee: null, hasClip: false, rightTab: 'inspect', search: '',
   };
   shippedLevels = allLevels().map((l) => ({ id: l.id, name: l.name, act: l.act, kind: l.kind }));
 
@@ -99,6 +101,9 @@ export class Editor extends Phaser.Scene implements UiHost {
   private fitted = false;
   private saveTimer = 0;
   private builtSize = '';
+  /** Whether the current preview shows the dark room's darkness (rebuild when the toggle flips). */
+  private builtDark = false;
+  private shadow: Phaser.GameObjects.Graphics | null = null;
   private keyDown = (e: KeyboardEvent) => this.onKey(e);
   private keyUp = (e: KeyboardEvent) => { if (e.code === 'Space') this.space = false; };
   private beforeUnload = () => { if (this.doc?.dirty) this.doc.saveDraft(); };
@@ -431,8 +436,11 @@ export class Editor extends Phaser.Scene implements UiHost {
     for (const t of this.labels) t.destroy();
     this.labels = [];
     const level = this.doc.level;
+    // Dark rooms are lit while editing (Layers → Preview → Darkness shows them as players will).
+    this.builtDark = !!level.dark && this.st.previewDark;
+    const shown = level.dark && !this.builtDark ? { ...level, dark: false } : level;
     try {
-      this.world = new World(level);
+      this.world = new World(shown);
       this.world.step(0); // settle once so beams, pads and shutters show their start state
     } catch {
       this.world = null;
@@ -448,8 +456,17 @@ export class Editor extends Phaser.Scene implements UiHost {
       }
     }
     this.bakeArt();
+    // A neutral workspace around the room: the game's parallax backdrop (which shows through the room's
+    // back wall, as in play) would otherwise fill the surround in the room's own colours, so you couldn't
+    // tell where the level ends. Plus a soft drop shadow so the room reads as a sheet on the desk.
+    this.shadow?.destroy();
+    const W = level.width * T, H = level.height * T, F = 1e5;
+    this.shadow = this.add.graphics().setDepth(-1);
+    this.shadow.fillStyle(WORKSPACE, 1).fillRect(-F, -F, 2 * F + W, F).fillRect(-F, H, 2 * F + W, F).fillRect(-F, 0, F, H).fillRect(W, 0, F, H);
+    for (let i = 1; i <= 4; i++) this.shadow.fillStyle(0x000000, 0.14).fillRect(W, i * 2, i * 1.5, H).fillRect(i * 1.5, H, W - i * 1.5, i * 2);
     const size = `${level.width}x${level.height}`;
     if (!this.fitted || size !== this.builtSize) { this.fitted = true; this.builtSize = size; this.fit(); }
+    if (level.dark) this.labels.push(this.label(0, -9, this.builtDark ? '☾ dark room (preview)' : '☾ dark room · lit for editing', '#b9c6ff'));
     for (const z of level.zones) this.labels.push(this.label((z.x + 0.08) * T, (z.y + 0.04) * T, z.id, '#1d6f6a'));
     for (const e of level.exits ?? []) this.labels.push(this.label((e.x + 0.08) * T, (e.y + 0.04) * T, `⇥ ${e.to || '?'}`, '#8a5a12'));
   }
@@ -508,7 +525,7 @@ export class Editor extends Phaser.Scene implements UiHost {
   override update(_time: number, delta: number): void {
     const dt = Math.min(delta, 50) / 1000;
     this.t += dt;
-    if (this.needsRebuild) this.rebuild();
+    if (this.needsRebuild || (!!this.doc.level.dark && this.st.previewDark) !== this.builtDark) this.rebuild();
     this.view?.render(1, dt);
     const st = this.st;
     if (this.view) this.view.root.setAlpha(st.visible.terrain ? st.opacity.terrain : 0.12);
@@ -981,7 +998,8 @@ export class Editor extends Phaser.Scene implements UiHost {
     if (!this.link) {
       const begin = (trigger: Trigger) => { this.link = { trigger, at: c }; this.ui.toast('Now click what should happen. Right-click or Esc to finish.'); };
       const items: Array<{ label: string; run: () => void }> = [];
-      if (o?.type === 'plate') items.push({ label: 'When pressed', run: () => begin({ type: 'plateDown', plate: o.id }) }, { label: 'When released', run: () => begin({ type: 'plateUp', plate: o.id }) }, { label: 'When Pip stands on it', run: () => begin({ type: 'playerOn', target: o.id }) });
+      if (o?.type === 'sensor') items.push({ label: 'When the flashlight hits it', run: () => begin({ type: 'plateDown', plate: o.id }) }, { label: 'When the light leaves it', run: () => begin({ type: 'plateUp', plate: o.id }) });
+      else if (o?.type === 'plate') items.push({ label: 'When pressed', run: () => begin({ type: 'plateDown', plate: o.id }) }, { label: 'When released', run: () => begin({ type: 'plateUp', plate: o.id }) }, { label: 'When Pip stands on it', run: () => begin({ type: 'playerOn', target: o.id }) });
       else if (o && o.type !== 'sign' && o.type !== 'label') items.push({ label: `When Pip stands on ${o.id}`, run: () => begin({ type: 'playerOn', target: o.id }) });
       if (z) items.push({ label: `When Pip enters ${z.id}`, run: () => begin({ type: 'playerEnters', zone: z.id }) }, { label: `When a body enters ${z.id}`, run: () => begin({ type: 'corpseEnters', zone: z.id }) });
       items.push({ label: 'After a timer (1 s)', run: () => begin({ type: 'timer', ticks: 60 }) }, { label: 'When deaths ≥ 1', run: () => begin({ type: 'deathCountAtLeast', n: 1 }) },
@@ -1125,13 +1143,22 @@ export class Editor extends Phaser.Scene implements UiHost {
           }
           case 'light': {
             const col = Phaser.Display.Color.HexStringToColor(o.color ?? '#ffe9a6').color;
-            g.fillStyle(col, o.flicker ? 0.06 + Math.random() * 0.05 : 0.08).fillCircle(cx, cy, (o.radius ?? 4) * T);
-            g.lineStyle(lw, col, 0.5).strokeCircle(cx, cy, (o.radius ?? 4) * T);
+            // The radius only for the selected light: a zone full of lamps would drown in circles.
+            if (st.selection?.kind === 'object' && st.selection.id === o.id) {
+              g.fillStyle(col, o.flicker ? 0.06 + Math.random() * 0.05 : 0.08).fillCircle(cx, cy, (o.radius ?? 4) * T);
+              g.lineStyle(lw, col, 0.5).strokeCircle(cx, cy, (o.radius ?? 4) * T);
+            }
+            g.lineStyle(lw, col, 0.8).strokeCircle(cx, cy, 4.5);
             g.fillStyle(col, 1).fillCircle(cx, cy, 2.5);
             break;
           }
           case 'bench': g.lineStyle(1.5 * lw, 0x5bf0a0, 0.95).strokeRect(o.x * T + 2, o.y * T + 2, T - 4, T - 4).fillStyle(0x5bf0a0, 0.95).fillTriangle(cx - 2, cy - 4, cx - 2, cy + 1, cx + 4, cy - 1.5); break;
           case 'relic': g.fillStyle(o.kind === 'note' ? 0xe8dcc0 : 0x7fd0d0, 0.95).fillRect(cx - 3, cy - 4, 6, 8).lineStyle(lw, 0x1c1a24, 1).strokeRect(cx - 3, cy - 4, 6, 8); break;
+          case 'sensor': {
+            g.lineStyle(1.5 * lw, 0xffe9a6, 0.5 + pulse * 0.4).strokeCircle(cx, cy, 6.5);
+            for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + this.t * 0.6; g.lineBetween(cx + Math.cos(a) * 8, cy + Math.sin(a) * 8, cx + Math.cos(a) * 10, cy + Math.sin(a) * 10); }
+            break;
+          }
           case 'crate': g.lineStyle(1.5 * lw, 0xb07a45, 0.6).strokeRect(o.x * T + 1, o.y * T + 1, T - 2, T - 2); break;
           case 'laser':
             if (o.hidden && this.world) {
