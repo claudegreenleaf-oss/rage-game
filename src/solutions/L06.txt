@@ -1,0 +1,21 @@
+right 14
+wait 180      # ride to the last stop: the dropper gets us (death 1); body rides on
+wait 33       # respawn: the platform resets and the body drops onto the spikes
+right 12
+wait 4
+right 11      # step onto the platform
+wait 155      # ride; the dropper starts shaking as we arrive
+down 4        # drop through onto body 1 before it lands (the platform takes the hit)
+wait 20
+right+jump 12 # one stone isn't enough: jump as far as we can into the spikes (death 2)
+right 20
+wait 20       # body 1 is Rot now
+right 12
+wait 4
+right 11      # third ride
+wait 136
+right+jump 20 # hop forward onto body 2 before the dropper lands
+right 14      # (keep drifting)
+wait 20
+right+jump 20 # and on to the bank
+right 40

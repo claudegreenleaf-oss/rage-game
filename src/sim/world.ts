@@ -1,0 +1,393 @@
+// The deterministic simulation. One call to `step(input)` advances exactly one 60 Hz tick.
+import {
+  Btn, U,
+  type Box, type Corpse, type DeathType, type LevelData, type Player, type SimEvent, type TileGlyph,
+} from './types';
+import {
+  HITSTOP, MAX_FALL, PIP_H, PIP_W, PIP_WEIGHT, RESPAWN_DELAY, STAGE_WEIGHT,
+} from './constants';
+import { FREE_SPOT_OFFSETS, overlaps, overlapX, sweptRegion, xOverlapLen, type Solid } from './physics';
+import { updatePlayer } from './player';
+import { spawnCorpse, updateCorpses, type DeathInfo } from './corpse';
+import {
+  buildObjects, carryRiders, hazardChecks, updateGates, updateKinematics, updatePlates,
+  type ObjectState,
+} from './hazards';
+import { EventEngine } from './triggers';
+import { cloneLevel } from './level';
+
+/** What an entity is resting on. */
+export type Support =
+  | { kind: 'tile'; cx: number; cy: number; glyph: TileGlyph }
+  | { kind: 'obj'; id: string }
+  | { kind: 'corpse'; id: number }
+  | { kind: 'pip' };
+
+export const isSolidGlyph = (g: TileGlyph | undefined): boolean => g === '#' || g === '=' || g === '}' || g === '{';
+
+export class World {
+  readonly level: LevelData;
+  readonly W: number;
+  readonly H: number;
+  tiles: TileGlyph[][] = [];
+  tick = 0;
+  /** Ticks since the current life started (drives timers, blink patterns, periodic crushers). */
+  lifeTick = 0;
+  pip!: Player;
+  pipAlive = true;
+  corpses: Corpse[] = [];
+  deathCount = 0;
+  won = false;
+  hitstop = 0;
+  respawnTimer = 0;
+  pendingDeath: DeathInfo | null = null;
+  lastDeath: DeathType | null = null;
+  current = { dir: 1 as -1 | 1, speed: 0 };
+  /** Pip's actual displacement over the previous tick (includes being carried). */
+  pipDx = 0;
+  obj!: ObjectState;
+  /** Hidden lasers that have fired at least once (survives respawn, cleared by R). */
+  revealed = new Set<string>();
+  events: EventEngine;
+  supports = new Map<number, Support>(); // key: corpse id, or -1 for Pip
+  fx: SimEvent[] = [];
+  private prevInput = 0;
+  private nextCorpseId = 1;
+  private bornCounter = 0;
+
+  constructor(level: LevelData) {
+    this.level = cloneLevel(level);
+    this.W = level.width;
+    this.H = level.height;
+    this.events = new EventEngine(this);
+    this.resetLevel();
+    this.spawnPip();
+    this.events.onLifeStart();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Main loop
+  // ---------------------------------------------------------------------------
+
+  step(input: number): void {
+    this.fx = [];
+    const pressed = input & ~this.prevInput;
+    this.prevInput = input;
+    this.tick++;
+    if (pressed & Btn.Restart) { this.restart(); return; }
+    if (this.won) return;
+    if (this.hitstop > 0) {
+      this.hitstop--;
+      if (this.hitstop === 0) this.finishDeath();
+      return;
+    }
+    this.lifeTick++;
+    this.savePrev();
+    this.events.runScheduled();
+    updateKinematics(this);
+    if (this.pipAlive) updatePlayer(this, input, pressed);
+    updateCorpses(this);
+    hazardChecks(this);
+    this.computeSupports();
+    updatePlates(this);
+    updateGates(this);
+    this.events.evaluate();
+    if (this.pipAlive && !this.won) this.checkWin();
+    if (!this.pipAlive && this.hitstop === 0 && this.respawnTimer > 0) {
+      this.respawnTimer--;
+      if (this.respawnTimer === 0) this.respawn();
+    }
+  }
+
+  private savePrev(): void {
+    this.pipDx = this.pip.x - this.pip.px;
+    this.pip.px = this.pip.x; this.pip.py = this.pip.y;
+    for (const c of this.corpses) { c.px = c.x; c.py = c.y; }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Level lifecycle
+  // ---------------------------------------------------------------------------
+
+  /** Restore every level object to its start state. Corpses are untouched. */
+  resetLevel(): void {
+    this.tiles = this.level.tiles.map((row) => row.split('') as TileGlyph[]);
+    this.current = { dir: this.level.current?.dir ?? 1, speed: this.level.current?.speed ?? 0 };
+    this.obj = buildObjects(this);
+    this.lifeTick = 0;
+  }
+
+  spawnPoint(): { x: number; y: number } {
+    const s = this.level.objects.find((o) => o.type === 'spawn');
+    const sx = s ? s.x : 1;
+    const sy = s ? s.y : 1;
+    return { x: sx * U + ((U - PIP_W) >> 1), y: sy * U + U - PIP_H };
+  }
+
+  private spawnPip(): void {
+    const p = this.spawnPoint();
+    this.pip = {
+      x: p.x, y: p.y, w: PIP_W, h: PIP_H, vx: 0, vy: 0, px: p.x, py: p.y, facing: 1,
+      grounded: false, coyote: 0, jumpBuffer: 0, jumpHeld: false, jumping: false, bouncing: false,
+      airTicks: 0, dropThrough: 0,
+    };
+    this.pipAlive = true;
+    // Never spawn inside a corpse: stand on top of it instead.
+    const spot = this.findFreeSpot(this.pip, -1);
+    if (spot) { this.pip.x = spot.x; this.pip.y = spot.y; this.pip.px = spot.x; this.pip.py = spot.y; }
+  }
+
+  private respawn(): void {
+    this.resetLevel();
+    // Reset tiles may now overlap corpses: push each up to the nearest free spot.
+    for (const c of [...this.corpses].sort((a, b) => b.y - a.y)) {
+      if (c.pin) continue;
+      const spot = this.findFreeSpot(c, c.id);
+      if (spot) { c.x = spot.x; c.y = spot.y; c.px = c.x; c.py = c.y; }
+    }
+    this.spawnPip();
+    this.computeSupports();
+    updatePlates(this, true);
+    updateGates(this, true);
+    this.events.onLifeStart();
+    this.fx.push({ t: 'respawn', x: this.pip.x + (PIP_W >> 1), y: this.pip.y + PIP_H });
+  }
+
+  restart(): void {
+    this.corpses = [];
+    this.revealed.clear();
+    this.won = false;
+    this.hitstop = 0;
+    this.respawnTimer = 0;
+    this.pendingDeath = null;
+    this.resetLevel();
+    this.spawnPip();
+    this.computeSupports();
+    updatePlates(this, true);
+    updateGates(this, true);
+    this.events.onLifeStart();
+    this.fx.push({ t: 'restart' });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Death
+  // ---------------------------------------------------------------------------
+
+  killPip(info: DeathInfo): void {
+    if (!this.pipAlive || this.won) return;
+    this.pipAlive = false;
+    this.deathCount++;
+    this.lastDeath = info.kind;
+    this.pendingDeath = info;
+    this.hitstop = HITSTOP;
+    this.pip.vx = 0; this.pip.vy = 0;
+    this.fx.push({ t: 'death', kind: info.kind, x: this.pip.x + (PIP_W >> 1), y: this.pip.y + (PIP_H >> 1) });
+  }
+
+  private finishDeath(): void {
+    const info = this.pendingDeath;
+    this.pendingDeath = null;
+    if (info) spawnCorpse(this, info);
+    this.respawnTimer = RESPAWN_DELAY;
+  }
+
+  newCorpseId(): number { return this.nextCorpseId++; }
+  newBorn(): number { return this.bornCounter++; }
+
+  // ---------------------------------------------------------------------------
+  // Win
+  // ---------------------------------------------------------------------------
+
+  private checkWin(): void {
+    for (const d of this.obj.doors) {
+      if (d.state === 'hop') continue;
+      // Pip's centre has to be inside the doorway.
+      const mid = this.pip.x + (this.pip.w >> 1);
+      if (mid >= d.x && mid < d.x + d.w && this.pip.y < d.y + d.h && this.pip.y + this.pip.h > d.y) {
+        this.won = true;
+        this.fx.push({ t: 'win', x: d.x + (d.w >> 1), y: d.y + (d.h >> 1) });
+        return;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tiles & solids
+  // ---------------------------------------------------------------------------
+
+  tileAt(cx: number, cy: number): TileGlyph {
+    if (cx < 0 || cx >= this.W) return '#';
+    if (cy < 0) return '#';
+    if (cy >= this.H) return '.';
+    return this.tiles[cy]![cx]!;
+  }
+
+  setTile(cx: number, cy: number, g: TileGlyph): void {
+    if (cx < 0 || cx >= this.W || cy < 0 || cy >= this.H) return;
+    this.tiles[cy]![cx] = g;
+  }
+
+  /**
+   * Solids that could touch `region`.
+   * @param self corpse id to exclude, or -1 for Pip.
+   * @param withPip include Pip as a solid (corpses rest on Pip).
+   * @param withCorpses include corpses.
+   */
+  solidsIn(region: Box, self: number, withPip: boolean, withCorpses = true): Solid[] {
+    const out: Solid[] = [];
+    const c0 = Math.floor(region.x / U), c1 = Math.floor((region.x + region.w) / U);
+    const r0 = Math.floor(region.y / U), r1 = Math.floor((region.y + region.h) / U);
+    for (let cy = r0; cy <= r1; cy++)
+      for (let cxx = c0; cxx <= c1; cxx++) {
+        const g = this.tileAt(cxx, cy);
+        if (!isSolidGlyph(g)) continue;
+        const conv = g === '}' ? 1 : g === '{' ? -1 : undefined;
+        out.push({ x: cxx * U, y: cy * U, w: U, h: U, kind: conv ? 'conveyor' : 'tile', oneWay: false, id: cy * 1000 + cxx, conveyor: conv });
+      }
+    for (const s of this.obj.dynamicSolids()) if (overlaps(s, region)) out.push(s);
+    const selfFloating = self > 0 && !!this.corpseById(self)?.floating;
+    if (withCorpses)
+      for (const c of this.corpses) {
+        if (c.id === self) continue;
+        if (!overlaps(c, region)) continue;
+        // Skeletons are one-way, except that rafts bump into each other so they pile up.
+        const oneWay = c.stage === 2 && !(c.floating && selfFloating);
+        out.push({ x: c.x, y: c.y, w: c.w, h: c.h, kind: 'corpse', oneWay, id: c.id });
+      }
+    if (withPip && this.pipAlive && self !== -1 && overlaps(this.pip, region))
+      out.push({ x: this.pip.x, y: this.pip.y, w: this.pip.w, h: this.pip.h, kind: 'pip', oneWay: false, id: -1 });
+    return out;
+  }
+
+  solidsAround(box: Box, dx: number, dy: number, self: number, withPip: boolean, withCorpses = true): Solid[] {
+    return this.solidsIn(sweptRegion(box, dx, dy), self, withPip, withCorpses);
+  }
+
+  /** Is `box` free of non-one-way solids (and of Pip, if asked)? */
+  isFree(box: Box, self: number, withPip = false): boolean {
+    for (const s of this.solidsIn(box, self, withPip)) if (!s.oneWay && overlaps(box, s)) return false;
+    return true;
+  }
+
+  /** Nearest position (prefers straight up) where `box` doesn't overlap anything solid. */
+  findFreeSpot(box: Box, self: number): { x: number; y: number } | null {
+    const probe = { x: box.x, y: box.y, w: box.w, h: box.h };
+    for (const [dx, dy] of FREE_SPOT_OFFSETS) {
+      probe.x = box.x + dx; probe.y = box.y + dy;
+      if (probe.x < 0 || probe.x + probe.w > this.W * U) continue;
+      if (this.isFree(probe, self, self !== -1)) return { x: probe.x, y: probe.y };
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Supports, weights
+  // ---------------------------------------------------------------------------
+
+  /** Work out what every entity rests on (used for carrying, plates and playerOn). */
+  computeSupports(): void {
+    this.supports.clear();
+    const entities: Array<{ key: number; box: Box }> = [];
+    if (this.pipAlive) entities.push({ key: -1, box: this.pip });
+    for (const c of this.corpses) if (!c.pin) entities.push({ key: c.id, box: c });
+    for (const { key, box } of entities) {
+      const probe = { x: box.x, y: box.y + box.h, w: box.w, h: 1 };
+      let best: Support | null = null;
+      let bestOverlap = 0;
+      for (const s of this.solidsIn(probe, key, key !== -1)) {
+        if (s.y !== box.y + box.h) continue;
+        if (!overlapX(probe, s)) continue;
+        const ov = xOverlapLen(probe, s);
+        if (ov <= bestOverlap) continue;
+        bestOverlap = ov;
+        if (s.kind === 'tile' || s.kind === 'conveyor') {
+          const scx = Math.floor(s.x / U), scy = Math.floor(s.y / U);
+          best = { kind: 'tile', cx: scx, cy: scy, glyph: this.tileAt(scx, scy) };
+        } else if (s.kind === 'corpse') best = { kind: 'corpse', id: s.id as number };
+        else if (s.kind === 'pip') best = { kind: 'pip' };
+        else best = { kind: 'obj', id: String(s.id) };
+      }
+      if (best) this.supports.set(key, best);
+    }
+  }
+
+  /** The non-entity object at the bottom of an entity's support chain (if any). */
+  rootSupport(key: number): Support | null {
+    let k = key;
+    for (let guard = 0; guard < 16; guard++) {
+      const s = this.supports.get(k);
+      if (!s) return null;
+      if (s.kind === 'corpse') { k = s.id; continue; }
+      if (s.kind === 'pip') { k = -1; continue; }
+      return s;
+    }
+    return null;
+  }
+
+  /** Every entity key in the support chain below `key` (excluding itself). */
+  supportChain(key: number): Support[] {
+    const out: Support[] = [];
+    let k = key;
+    for (let guard = 0; guard < 16; guard++) {
+      const s = this.supports.get(k);
+      if (!s) break;
+      out.push(s);
+      if (s.kind === 'corpse') k = s.id;
+      else if (s.kind === 'pip') k = -1;
+      else break;
+    }
+    return out;
+  }
+
+  weightOf(key: number): number {
+    if (key === -1) return this.pipAlive ? PIP_WEIGHT : 0;
+    const c = this.corpseById(key);
+    return c ? STAGE_WEIGHT[c.stage] : 0;
+  }
+
+  /** Entities resting directly on the given support. */
+  ridersOf(match: (s: Support) => boolean): number[] {
+    const out: number[] = [];
+    for (const [k, s] of this.supports) if (match(s)) out.push(k);
+    return out;
+  }
+
+  corpseById(id: number): Corpse | undefined {
+    return this.corpses.find((c) => c.id === id);
+  }
+
+  entityBox(key: number): Box | undefined {
+    return key === -1 ? (this.pipAlive ? this.pip : undefined) : this.corpseById(key);
+  }
+
+  /** Move an entity by (dx, dy) with collision, carrying whatever rests on it. Returns the actual move. */
+  moveEntity(key: number, dx: number, dy: number, depth = 0, ignorePip = false): { dx: number; dy: number } {
+    return carryRiders(this, key, dx, dy, depth, ignorePip);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Water
+  // ---------------------------------------------------------------------------
+
+  /** Y (units) of the water surface for the water body under column `cxx` that overlaps rows around `y`, or null. */
+  waterSurfaceAt(cxx: number, y: number): number | null {
+    const cy = Math.floor(y / U);
+    if (this.tileAt(cxx, cy) !== '~') return null;
+    let top = cy;
+    while (top > 0 && this.tileAt(cxx, top - 1) === '~') top--;
+    return top * U;
+  }
+
+  /** Water surface under a box (checks the column under its centre, then its edges). */
+  waterUnder(box: Box): number | null {
+    const probeY = box.y + box.h - 1;
+    const cols = [Math.floor((box.x + (box.w >> 1)) / U), Math.floor((box.x + 1) / U), Math.floor((box.x + box.w - 2) / U)];
+    for (const col of cols) {
+      const s = this.waterSurfaceAt(col, probeY);
+      if (s !== null) return s;
+    }
+    return null;
+  }
+
+  get maxFall(): number { return MAX_FALL; }
+}

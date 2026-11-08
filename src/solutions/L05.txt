@@ -1,0 +1,10 @@
+# L05 Shallow End: three drownings make three rafts that pile up against the far wall.
+right 330     # walk into the pool three times (deaths 1-3)
+wait 150      # let the rafts drift over
+left 20       # run-up
+wait 10
+right 23
+right+jump 30 # jump to the nearest raft; 0.4 s later the current reverses
+right 20
+right+jump 30 # hop across and up onto the ledge
+right 60

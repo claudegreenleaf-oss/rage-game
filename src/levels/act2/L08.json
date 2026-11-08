@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "id": "L08",
+  "name": "Runaway",
+  "act": 2,
+  "width": 26,
+  "height": 6,
+  "tiles": [
+    "##########################",
+    "#........................#",
+    "#........................#",
+    "#........................#",
+    "#........................#",
+    "##########################"
+  ],
+  "objects": [
+    {
+      "type": "dropper",
+      "id": "d1",
+      "x": 4,
+      "y": 1,
+      "by": [
+        "player",
+        "door"
+      ]
+    },
+    {
+      "type": "dropper",
+      "id": "d2",
+      "x": 10,
+      "y": 1,
+      "by": [
+        "player",
+        "door"
+      ]
+    },
+    {
+      "type": "dropper",
+      "id": "d3",
+      "x": 16,
+      "y": 1,
+      "by": [
+        "player",
+        "door"
+      ]
+    },
+    {
+      "type": "spawn",
+      "id": "spawn",
+      "x": 1,
+      "y": 4
+    },
+    {
+      "type": "sign",
+      "id": "s1",
+      "x": 3,
+      "y": 4,
+      "text": {
+        "0": "The exit is right over there. Go on."
+      }
+    },
+    {
+      "type": "door",
+      "id": "door",
+      "x": 15,
+      "y": 4,
+      "runaway": true
+    }
+  ],
+  "zones": [
+    {
+      "id": "corner",
+      "x": 21,
+      "y": 1,
+      "w": 4,
+      "h": 4
+    }
+  ],
+  "events": [
+    {
+      "trigger": {
+        "type": "playerEnters",
+        "zone": "corner"
+      },
+      "actions": [
+        {
+          "type": "sign",
+          "target": "s1",
+          "text": "Doors can jump. Didn't you know?",
+          "delay": 30
+        }
+      ],
+      "once": true
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "id": "L02",
+  "name": "Dead Weight",
+  "act": 1,
+  "width": 22,
+  "height": 8,
+  "tiles": [
+    "######################",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#....................#",
+    "#################XX###"
+  ],
+  "objects": [
+    {
+      "type": "crusher",
+      "id": "c1",
+      "x": 8,
+      "y": 2,
+      "w": 2,
+      "h": 1
+    },
+    {
+      "type": "spawn",
+      "id": "spawn",
+      "x": 1,
+      "y": 6
+    },
+    {
+      "type": "sign",
+      "id": "s1",
+      "x": 3,
+      "y": 6,
+      "text": {
+        "0": "Stand on the button. Nothing bad will happen.",
+        "1": "Something bad happened. Unrelated."
+      }
+    },
+    {
+      "type": "plate",
+      "id": "pl1",
+      "x": 8,
+      "y": 6,
+      "w": 2,
+      "need": 1
+    },
+    {
+      "type": "gate",
+      "id": "g1",
+      "x": 15,
+      "y": 1,
+      "h": 6,
+      "plate": "pl1"
+    },
+    {
+      "type": "door",
+      "id": "door",
+      "x": 20,
+      "y": 6
+    }
+  ],
+  "zones": [],
+  "events": [
+    {
+      "trigger": {
+        "type": "playerOn",
+        "target": "pl1"
+      },
+      "actions": [
+        {
+          "type": "fireCrusher",
+          "target": "c1",
+          "delay": 30
+        }
+      ],
+      "once": true
+    }
+  ]
+}

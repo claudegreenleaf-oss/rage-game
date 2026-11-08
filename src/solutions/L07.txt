@@ -1,0 +1,18 @@
+# L07 Lights Out
+right 40      # the dropper gives us a body (death 1)
+wait 60
+right 196     # push it into the shaft: the invisible laser zaps it
+wait 10
+right+jump 20 # hop the shaft
+right 60      # and walk into the exit laser (death 2, no body) so the dropper resets
+wait 20
+right 40      # the dropper again (death 3)
+wait 60
+right 170     # push the new body to the lip of the shaft
+left 4
+wait 90       # watch the blinker: 1 s on, 1 s off
+right 24      # push as it switches off: the body drops past it onto the plate
+left 6
+wait 40
+right+jump 20 # the exit laser is off: hop the shaft and walk out
+right 100

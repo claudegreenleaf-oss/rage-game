@@ -1,0 +1,21 @@
+# L03 Leg Up
+right 100     # the first dropper gets us (death 1); respawn and start pushing the body
+wait 30
+right 400     # push the body all the way to the ledge
+right+jump 16 # hop onto the body
+right 10
+wait 10
+right+jump 22 # and up onto the ledge
+right 60      # run for the door: the second dropper gets us (death 2), body 1 turns to Rot
+wait 40
+right 30      # respawn: bait the first dropper...
+left 14
+wait 30
+right 160     # ...then run to the Rot body under the ledge
+jump 10       # jump on it: Rot bounces us up
+right 30
+wait 20
+right 14      # bait the door dropper...
+left 10
+wait 30
+right 60      # ...and walk in (shoving body 2 along)

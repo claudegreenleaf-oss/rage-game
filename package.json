@@ -1,0 +1,35 @@
+{
+  "name": "die-trying",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Die Trying: a browser puzzle-platformer where your corpses stay behind and become your tools.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run && playwright test",
+    "test:unit": "vitest run",
+    "test:smoke": "playwright test",
+    "trace": "tsx scripts/trace.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/claudegreenleaf-oss/rage-game.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "lz-string": "^1.5.0",
+    "phaser": "3.90.0",
+    "zzfx": "^1.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.0",
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^3.2.7"
+  }
+}

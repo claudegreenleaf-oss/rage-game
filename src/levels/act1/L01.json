@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "id": "L01",
+  "name": "Trust Me",
+  "act": 1,
+  "width": 22,
+  "height": 6,
+  "tiles": [
+    "######################",
+    "#........#############",
+    "#........#############",
+    "#........vvvv#########",
+    "#.........^^.........#",
+    "######################"
+  ],
+  "objects": [
+    {
+      "type": "spawn",
+      "id": "spawn",
+      "x": 1,
+      "y": 4
+    },
+    {
+      "type": "sign",
+      "id": "s1",
+      "x": 4,
+      "y": 4,
+      "text": {
+        "0": "SAFE →  just walk",
+        "1": "See? Safe.",
+        "4": "Okay, maybe count them."
+      }
+    },
+    {
+      "type": "popup",
+      "id": "p1",
+      "x": 18,
+      "y": 4
+    },
+    {
+      "type": "sign",
+      "id": "s2",
+      "x": 19,
+      "y": 4,
+      "text": {
+        "0": "Almost there!"
+      }
+    },
+    {
+      "type": "door",
+      "id": "door",
+      "x": 20,
+      "y": 4
+    }
+  ],
+  "zones": [
+    {
+      "id": "popzone",
+      "x": 16,
+      "y": 4,
+      "w": 2,
+      "h": 1
+    }
+  ],
+  "events": [
+    {
+      "trigger": {
+        "type": "playerEnters",
+        "zone": "popzone"
+      },
+      "actions": [
+        {
+          "type": "popSpike",
+          "target": "p1"
+        }
+      ],
+      "once": true
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+# L02 Dead Weight
+right 64     # walk onto the plate
+wait 80      # the crusher slams 0.5 s later: slab on the plate (death 1)
+right 200    # respawn, walk over the slab, gate is open, fall through the fake floor (death 2, no body)
+wait 30
+right 108    # walk to the edge of the fake floor
+right+jump 30
+right 40

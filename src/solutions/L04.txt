@@ -1,0 +1,41 @@
+# L04 Growing Old
+right 40      # dropper 1 (death 1)
+wait 30
+right 16      # bait dropper 1
+left 10
+wait 40
+right 20
+right+jump 22 # hop over body 1
+right 30
+wait 60       # stand under dropper 2 (death 2): body 1 is Rot now
+wait 10
+right 16      # bait dropper 1
+left 10
+wait 40
+right 78      # push the Rot body until dropper 2 starts shaking...
+wait 40
+right 260     # ...then push it into the Fresh one and both up to the ledge
+left 8
+wait 10
+jump 12       # hop onto the Rot body: it bounces us up
+right+jump 6
+jump 16
+right 32      # drift over the Fresh body onto the ledge
+right 40      # run for the door: dropper 3 (death 3). Body 1 is a Skeleton, body 2 Rot.
+wait 10
+right 16      # respawn: bait dropper 1
+left 10
+wait 40
+right 46      # bait dropper 2
+wait 40
+right 62      # walk up to the bodies
+wait 6
+jump 12       # hop onto body 2, now Rot
+right+jump 8
+jump 16
+right 30      # bounce up onto the ledge
+wait 10
+right 12      # bait the door dropper
+left 10
+wait 40
+right 80      # shove body 3 along and walk in
