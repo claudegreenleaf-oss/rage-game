@@ -270,6 +270,19 @@ describe('flashlight and light sensors', () => {
     hold(w, 0, 3);
     expect(w.obj.plates.find((p) => p.id === 'eye')!.pressed).toBe(false); // the pillar at col 11 is in the way
   });
+  it('the mouse aims the beam: a sensor overhead lights up only when aimed at', () => {
+    const l = mk(ROOM, { objects: [{ type: 'sensor', id: 'eye', x: 2, y: 1 }] });
+    const w = new World(l);
+    hold(w, 0, 3);
+    const s = w.obj.plates.find((p) => p.id === 'eye')!;
+    expect(s.pressed).toBe(false); // straight ahead misses it
+    w.aim = 192; // straight up (64 = down)
+    hold(w, 0, 3);
+    expect(s.pressed).toBe(true);
+    w.aim = 0; // back to the right
+    hold(w, 0, 3);
+    expect(s.pressed).toBe(false);
+  });
 });
 
 describe('fast travel', () => {

@@ -722,19 +722,33 @@ export function plateOf(w: World, s: { kind: string; cx?: number; cy?: number } 
 export const FLASH_RANGE = 9 * U;
 export const FLASH_HALF_ANGLE = 0.56; // radians (~32°)
 
+/** The beam's direction (radians): the mouse aim if set, else straight ahead. */
+export function flashlightAngle(w: World): number {
+  return w.aim === null ? (w.pip.facing > 0 ? 0 : Math.PI) : ((w.aim & 255) / 256) * 2 * Math.PI;
+}
+
+/** Unit vector of the beam (exact when aiming straight ahead, so replays stay bit-identical). */
+function flashlightDir(w: World): { x: number; y: number } {
+  if (w.aim === null) return { x: w.pip.facing, y: 0 };
+  const a = flashlightAngle(w);
+  return { x: Math.cos(a), y: Math.sin(a) };
+}
+
 export function flashlightOrigin(w: World): { x: number; y: number } {
   const p = w.pip;
-  return { x: p.x + p.w / 2 + p.facing * 40, y: p.y + p.h * 0.35 };
+  const d = flashlightDir(w);
+  return { x: p.x + p.w / 2 + Math.round(d.x * 40), y: p.y + p.h * 0.35 };
 }
 
 /** Is the point inside Pip's beam (and not behind a wall)? */
 export function inFlashlight(w: World, x: number, y: number): boolean {
   if (!w.pipAlive) return false;
   const o = flashlightOrigin(w);
+  const dir = flashlightDir(w);
   const dx = x - o.x, dy = y - o.y;
   const d = Math.sqrt(dx * dx + dy * dy);
   if (d > FLASH_RANGE) return false;
-  if (d > 1 && Math.acos(Math.max(-1, Math.min(1, (dx * w.pip.facing) / d))) > FLASH_HALF_ANGLE) return false;
+  if (d > 1 && Math.acos(Math.max(-1, Math.min(1, (dx * dir.x + dy * dir.y) / d))) > FLASH_HALF_ANGLE) return false;
   // Line of sight across tiles (sample every quarter tile).
   const steps = Math.ceil(d / (U / 4));
   for (let i = 1; i < steps; i++) {

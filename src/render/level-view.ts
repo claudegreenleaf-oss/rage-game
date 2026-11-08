@@ -7,7 +7,7 @@ import Phaser from 'phaser';
 import { DECOR_IDS, U, type Corpse, type DeathType, type LevelObject, type SimEvent } from '../sim/types';
 import { canWallJump, type World } from '../sim/world';
 import { PIP_H, PIP_W, SIGN_RANGE } from '../sim/constants';
-import { FLASH_HALF_ANGLE, FLASH_RANGE, flashlightOrigin, gateBox, signText, type RtCrusher, type RtDoor, type RtPlate } from '../sim/hazards';
+import { FLASH_HALF_ANGLE, FLASH_RANGE, flashlightAngle, flashlightOrigin, gateBox, signText, type RtCrusher, type RtDoor, type RtPlate } from '../sim/hazards';
 import { audio } from '../audio/sfx';
 import { ATLAS, corpseFrame, type Look } from './pixel/sprites';
 import {
@@ -1205,7 +1205,7 @@ export class LevelView {
     if (!w.pipAlive) return null;
     const o = flashlightOrigin(w);
     const ox = P(o.x), oy = P(o.y), range = P(FLASH_RANGE);
-    const base = w.pip.facing > 0 ? 0 : Math.PI;
+    const base = flashlightAngle(w);
     const spread = FLASH_HALF_ANGLE + 0.16, n = 44;
     const rays: Array<{ a: number; d: number }> = [];
     for (let i = 0; i <= n; i++) {

@@ -231,8 +231,10 @@ class Band {
         // Pillar | 2-wide chimney | cliff. Wall-jump up the chimney, step onto the cliff.
         const h = p[1];
         this.flat(3);
-        // pillar (1 wide, h-1 tall) leaves a 2-wide gap before the cliff
-        this.col(this.x, this.f - (h - 1)); this.x++;
+        // pillar (1 wide, h-1 tall) leaves a 2-wide gap before the cliff. It hangs one tile off the floor so
+        // Pip walks under it into the chimney (a pillar on the floor walled the chimney off: a softlock).
+        this.col(this.x, this.f - (h - 1));
+        this.r.carve(this.x, this.gy(this.f - 1), 1, 1); this.x++;
         this.flat(2);
         this.f -= h;
         this.flat(4);

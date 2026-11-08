@@ -52,6 +52,8 @@ export function tuneFor(r: LevelRules): Tune {
 }
 
 export class World {
+  /** Flashlight aim set by the mouse: an angle in 1/256 turns (0 right, 64 down), or null for where Pip faces. */
+  aim: number | null = null;
   readonly level: LevelData;
   readonly W: number;
   readonly H: number;

@@ -16,9 +16,10 @@ Built with Phaser 3, TypeScript and Vite. All art is generated in code (a pixel 
 | ↓ + walk away | Drag a body or crate you're touching (pull it off a wall) |
 | Jump into a vine | Grab it; ← → pump the swing, jump leaps off, ↓ slides down |
 | Into a wall while falling | Wall-slide; jump to wall-jump (everywhere except the 16 puzzle chambers, which were designed without it) |
+| Mouse | Aim the flashlight (without a mouse it points where Pip faces) |
 | R | Restart the room and clear all corpses |
 | M (or Tab) | Map: select any room you've visited to travel there |
-| Esc | Pause (music and effects volume are in here and in Settings) |
+| Esc | Pause: resume, restart, map, main menu, music and effects volume |
 | N | Mute |
 
 The rules, each taught by one level:
@@ -116,7 +117,7 @@ Playtesting with the owner changed the direction after the spec's v1 was built a
 
 - **Pixel art** in an abandoned, overgrown high-tech lab instead of flat vector pastels; a close follow camera (about 20 tiles across) instead of fitting the whole level on screen.
 - **A connected world** (Campaign of rooms joined by exits) instead of a level-by-level campaign; the original chambers plug in through `world.json`'s `attach` overlay so their files, solutions and tests are unchanged.
-- **New mechanics:** wall-slide/jump (exploration zones only, so puzzles stay fair), verlet vines, crates, crumbling floors, checkpoints, relics; dragging bodies with ↓ (fixes bodies stuck against walls); an R prompt when you're far past par.
+- **New mechanics:** wall-slide/jump (on by default; the 16 puzzle chambers turn it off so they stay fair), a mouse-aimed flashlight, verlet vines, crates, crumbling floors, checkpoints, relics; dragging bodies with ↓ (fixes bodies stuck against walls); an R prompt when you're far past par.
 - **Act 4 "The Core"** (L13–L16).
 - **Audio:** Satie on a synthesized piano, soft ASMR-like effects.
 - **Plates** are flush floor sensors (nothing snags on them).
@@ -131,7 +132,7 @@ Levels are plain JSON, exactly what the editor saves and what share codes carry:
   "id": "L01",
   "name": "Trust Me",
   "act": 1,                       // backdrop mood (1–3)
-  "width": 22, "height": 6,       // up to 32 × 18 tiles
+  "width": 22, "height": 6,       // 4 × 3 up to 256 × 128 tiles
   "tiles": [                      // `height` rows of `width` terrain glyphs
     "######################",
     "#........#############",
@@ -182,9 +183,11 @@ Rooms in the connected world add `kind` (`chamber` or `zone`), `biome`, `abiliti
 | `light` | `color?`, `radius?`, `flicker?` (decorative) |
 | `sensor` | light sensor: pressed while Pip's flashlight hits it; gates, lasers and events link to it like a plate |
 
-**Events** are `{ trigger, actions, once? }` and re-arm on every respawn. Each action may carry a `delay` in ticks.
+**Events** are `{ trigger, actions, once?, if?, name?, enabled? }` and re-arm on every respawn. Each action may carry a `delay` in ticks. `if` is a list of conditions that must all hold.
 
-- Triggers: `playerEnters(zone)`, `corpseEnters(zone)`, `plateDown(plate)`, `plateUp(plate)`, `timer(ticks)` since spawn, `deathCountAtLeast(n)`, `playerOn(target)` (an object id, `@raft` or `@corpse`).
-- Actions: `dropTiles`, `removeTiles`, `addTiles` (`rect`), `moveTiles` (`rect`, `path` offsets, `speed`), `popSpike`, `fireCrusher`, `fireDropper`, `toggleGate`, `startPlatform` (`target`), `moveDoor` (`target`, `path`, `speed`), `setCurrent` (`dir`, `speed`), `laser` (`target`, `mode`), `sign` (`target`, `text`), `shake` (`strength`), `sfx` (`name`).
+- Triggers: `playerEnters` / `playerLeaves` / `corpseEnters` (`zone`), `plateDown` / `plateUp` (`plate`), `playerOn` / `touch` / `bodyTouch` / `collect` (`target`; `playerOn` also takes `@raft` or `@corpse`), `start`, `timer` (`ticks` since spawn), `every` (`ticks`, `phase?`), `deathCountAtLeast` (`n`), `playerDies` (`cause?`), `key` (`jump`/`down`/`left`/`right`), `becomes` (`cond`), `signal` (`name`).
+- Conditions: `var` (`name`, `op`, `value`), `pressed` (`plate`, `is`), `inZone` (`zone`, `is`), `collected` (`target`, `is`), `gadgetOn` (`target`, `is`), `deaths` / `bodies` (`op`, `value`).
+- Actions: `dropTiles`, `removeTiles`, `addTiles` (`rect`), `moveTiles` (`rect`, `path` offsets, `speed`), `popSpike`, `fireCrusher`, `fireDropper`, `toggleGate`, `startPlatform` (`target`), `moveDoor` (`target`, `path`, `speed`), `gadget` (`target`, `op`), `setCurrent` (`dir`, `speed`), `laser` (`target`, `mode`), `sign` (`target`, `text`), `shake` (`strength`), `sfx` (`name`), `music` (`slot`), `message` (`text`, `seconds?`), `setVar` (`name`, `op`, `value`), `signal` (`name`), `kill` (`cause?`), `teleport` / `setSpawn` (`to`), `launch` (`vx`, `vy`), `setRule` (`rule`, `value`), `ability` (`wallJump?`, `airJumps?`), `spawnCrate` (`at`), `win`.
+- `vars`: `[{ name, value, keep?, show? }]`. `gadget` objects: `x`, `y`, `w`, `h`, `effect` (`kind` plus its numbers), `look?`, `solid?`, `affects?`, `on?`, `link?`/`invert?`, `when?`, `path?`/`speed?`/`loop?`/`move?`, `once?` (see `GadgetObj` in `src/sim/types.ts`).
 
 `verified: true` is set by the editor when the creator has beaten the level in playtest; it is cleared by any edit.

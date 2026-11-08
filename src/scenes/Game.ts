@@ -99,6 +99,12 @@ export class Game extends Phaser.Scene {
     const armed = pendingScript.get(this.world.level.id);
     if (armed) { this.scripted = [...armed]; pendingScript.delete(this.world.level.id); }
     this.lastDeaths = 0;
+    // The mouse aims the flashlight while it's over the game (keyboard-only play keeps it pointing ahead).
+    this.mouseOver = false;
+    this.input.on('pointermove', () => { this.mouseOver = true; });
+    this.input.on('gameout', () => { this.mouseOver = false; });
+    this.input.setDefaultCursor('crosshair');
+    this.events.once('shutdown', () => this.input.setDefaultCursor('default'));
     this.cameras.main.setBackgroundColor('rgba(0,0,0,0)').setRoundPixels(true).setZoom(ZOOM);
     this.buildView();
     this.updateCamera(0);
@@ -172,6 +178,22 @@ export class Game extends Phaser.Scene {
 
   /** Scripted input (tests and attract mode): one mask per tick, consumed before the keyboard. */
   scripted: number[] | null = null;
+
+  private mouseOver = false;
+
+  /** The flashlight's aim toward the mouse, in 1/256 turns, or null (straight ahead) without a mouse. */
+  private mouseAim(): number | null {
+    if (!this.mouseOver || this.scripted) return null;
+    const w = this.world;
+    if (!w.pipAlive) return null;
+    const p = this.input.activePointer;
+    const at = this.cameras.main.getWorldPoint(p.x, p.y);
+    const px = TILE / U;
+    const ex = (w.pip.x + w.pip.w / 2) * px, ey = (w.pip.y + w.pip.h * 0.35) * px;
+    const dx = at.x - ex, dy = at.y - ey;
+    if (dx * dx + dy * dy < 9) return w.aim; // cursor on Pip: keep the last aim
+    return (Math.round((Math.atan2(dy, dx) / (2 * Math.PI)) * 256) + 256) & 255;
+  }
 
   private readInput(): number {
     if (this.scripted) { const m = this.scripted.shift(); if (this.scripted.length === 0) this.scripted = null; return m ?? 0; }
@@ -259,6 +281,7 @@ export class Game extends Phaser.Scene {
       while (this.acc >= STEP_MS && steps < 6) {
         this.view.snapshot();
         const input = this.readInput();
+        this.world.aim = this.mouseAim();
         if (this.campaign) {
           this.campaign.step(input);
           if (this.campaign.roomRev !== this.roomRev) { this.changeRoom(); this.acc -= STEP_MS; steps++; continue; }
