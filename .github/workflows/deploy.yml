@@ -25,7 +25,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox
       - name: Typecheck
         run: npm run typecheck
       - name: Tests (replays, rules, invariants, browser smoke)
