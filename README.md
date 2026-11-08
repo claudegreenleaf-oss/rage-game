@@ -17,9 +17,9 @@ Built with Phaser 3, TypeScript and Vite. All art is generated in code (a pixel 
 | Jump into a vine | Grab it; ← → pump the swing, jump leaps off, ↓ slides down |
 | Into a wall while falling | Wall-slide; jump to wall-jump (exploration zones only) |
 | R | Restart the room and clear all corpses |
-| Tab | Map |
-| Esc | Pause |
-| M | Mute |
+| M (or Tab) | Map: select any room you've visited to travel there |
+| Esc | Pause (music and effects volume are in here and in Settings) |
+| N | Mute |
 
 The rules, each taught by one level:
 
@@ -30,7 +30,7 @@ The rules, each taught by one level:
 
 If you've died well past a level's par since your last restart, the HUD suggests **R**: a bad pile of bodies is always one keypress from a clean slate.
 
-**New game** drops you into the lab: one connected, scrolling world of exploration zones (vine swings over coolant, wall-jump shafts, crates, crumbling floors, lifts, hidden rooms, shortcuts, checkpoints, lab notes and specimen jars to find) linking **16 puzzle chambers in 4 acts**: Fresh Meat, Rot, Bare Bones and The Core (the hardest), then playable credits. **Chambers** on the title screen plays any chamber on its own.
+**New game** drops you into the lab: one connected, scrolling world of exploration zones (vine swings over coolant, wall-jump shafts, crates, crumbling floors, lifts, hidden rooms, shortcuts, checkpoints, lab notes and specimen jars to find) linking **16 puzzle chambers in 4 acts**: Fresh Meat, Rot, Bare Bones and The Core (the hardest), then playable credits. **Chambers** on the title screen plays any chamber on its own. The deep wings are dark: only Pip's flashlight beam (it points where you face, and walls cast shadows) shows the way, and light sensors open shutters only while your beam is on them.
 
 ### Level editor
 
@@ -157,7 +157,7 @@ Levels are plain JSON, exactly what the editor saves and what share codes carry:
 
 **Terrain glyphs:** `#` solid · `.` empty · `X` fake (looks solid, isn't) · `=` troll tile (solid until an event) · `^ v > <` spikes (floor, ceiling, left wall, right wall) · `~` water · `}` `{` conveyor right / left · `%` crumbling floor. A gap in the bottom wall is a bottomless pit.
 
-Rooms in the connected world add `kind` (`chamber` or `zone`), `biome`, `abilities`, `exits` (`{ id, x, y, w, h, to, toExit }` on the room edge), and optional customization: `decor` (`bg`/`fg` grids of decor chars), `images` (palette-indexed pixel art), `audio` (`sfx` overrides, `theme` song, built-in `music`) and `rules`. `src/levels/world.json` lists the rooms, the start, map layout and the chamber attachments.
+Rooms in the connected world add `kind` (`chamber` or `zone`), `biome`, `abilities`, `exits` (`{ id, x, y, w, h, to, toExit }` on the room edge), and optional customization: `decor` (`bg`/`fg` grids of decor chars), `images` (palette-indexed pixel art), `audio` (`sfx` overrides, `theme` song, built-in `music`) and `rules`, and `dark` (only the flashlight lights the room). `src/levels/world.json` lists the rooms, the start, map layout and the chamber attachments.
 
 **Objects** (positions in tiles, top-left):
 
@@ -179,6 +179,7 @@ Rooms in the connected world add `kind` (`chamber` or `zone`), `biome`, `abiliti
 | `bench` | checkpoint |
 | `relic` | `kind` (`note`/`jar`), `text?` (lore) |
 | `light` | `color?`, `radius?`, `flicker?` (decorative) |
+| `sensor` | light sensor: pressed while Pip's flashlight hits it; gates, lasers and events link to it like a plate |
 
 **Events** are `{ trigger, actions, once? }` and re-arm on every respawn. Each action may carry a `delay` in ticks.
 

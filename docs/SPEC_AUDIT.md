@@ -57,6 +57,10 @@ Every glyph is implemented (solid, spawn, door incl. runaway, four spike directi
 
 Proximity signs (3 tiles), per-death-count text, event overrides, the global taunt pool (1, 3, 5, 10, 20, 50). Changed per playtesting: one message on screen at a time, never over Pip or mechanics; hint lines at higher death counts.
 
+## Playtest round 2 (owner feedback)
+
+Figure/ground separation (solids and hazards outlined and saturated, background darkened and thinned), grip-textured walls plus a HUD icon wherever wall-jump works, dark rooms (Wing 3, Core Access, The Core) lit only by Pip's flashlight cone with real terrain shadows, light sensors that open shutters only while lit (`tests/world.test.ts`), a readable map on M with fast travel to visited rooms (`travelTo`, tested), separate saved music/effects volume, all 28 lore notes rewritten, and the editor's black canvas fixed (the editor never reopened the title's iris wipe; reproduced in WebKit at 2x through the title button, then verified fixed the same way).
+
 ## §8 Levels
 
 All 12 spec levels ship with solution scripts that win at their intended death counts (`tests/replays.test.ts`), plus Act 4 (L13–L16) and the playable credits. Binding invariants are tests in `tests/invariants.test.ts` and `tests/act4.test.ts` (brute-force move searches, for example "can't clear the strip with a jump", "you can't jump straight from the last stop to the bank", "you can't catch the door with no bodies"). Geometry was tuned where the spec maps didn't satisfy their own invariants (L01 corridor, L04 ledge, L06 one-way platform and bank, L09 floor spike, L10 dropper position); L11 and L12 were designed from the descriptions. A full chamber campaign run through the real title → act cards → levels → credits → End flow passed in Chromium with every level winning at its intended death count.
