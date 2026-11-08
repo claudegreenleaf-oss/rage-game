@@ -6,15 +6,16 @@ import { levelHash } from '../src/sim/level';
 
 /** The intended death path for each level. Changing a level must not silently change these. */
 const EXPECTED_DEATHS: Record<string, number> = {
-  L01: 3, L02: 2, L03: 2, L04: 3, L05: 3, L06: 2, L07: 3, L08: 1, L09: 3, L10: 5, L11: 3, L12: 3, credits: 1,
+  L01: 3, L02: 2, L03: 2, L04: 3, L05: 3, L06: 2, L07: 3, L08: 1, L09: 3, L10: 5, L11: 3, L12: 3,
+  L13: 2, L14: 2, L15: 2, L16: 2, credits: 1,
 };
 
 const table: Array<{ level: string; solved: string; deaths: number; time: string }> = [];
 
 describe('solution replays', () => {
-  it('ships 12 levels plus the credits', () => {
+  it('ships 16 levels in 4 acts plus the credits', () => {
     expect(LEVELS.filter((l) => /^L\d\d$/.test(l.id)).map((l) => l.id)).toEqual(
-      ['L01', 'L02', 'L03', 'L04', 'L05', 'L06', 'L07', 'L08', 'L09', 'L10', 'L11', 'L12'],
+      ['L01', 'L02', 'L03', 'L04', 'L05', 'L06', 'L07', 'L08', 'L09', 'L10', 'L11', 'L12', 'L13', 'L14', 'L15', 'L16'],
     );
     expect(LEVELS.some((l) => l.credits)).toBe(true);
   });

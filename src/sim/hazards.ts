@@ -291,17 +291,23 @@ function updateVines(w: World): void {
 
 /** Crumbling floor gives way after being stood on for a moment. */
 function updateCrumble(w: World): void {
+  // A run of crumbling tiles in a row shares one timer, so running across it still brings it down
+  // (just behind you); a lone tile only goes if you linger.
   const touched = new Set<number>();
-  for (const s of w.supports.values()) if (s.kind === 'tile' && s.glyph === '%') touched.add(s.cy * 1000 + s.cx);
+  for (const s of w.supports.values()) {
+    if (s.kind !== 'tile' || s.glyph !== '%') continue;
+    let x = s.cx;
+    while (w.tileAt(x - 1, s.cy) === '%') x--;
+    touched.add(s.cy * 1000 + x);
+  }
   const fall: Pt[] = [];
   for (const k of touched) {
     const t = (w.obj.crumble.get(k) ?? 0) + 1;
     w.obj.crumble.set(k, t);
     if (t >= CRUMBLE_TICKS) {
       const cx = k % 1000, cy = Math.floor(k / 1000);
-      // Neighbouring crumble tiles in the same row go too.
-      for (let x = cx; isSolidGlyph(w.tileAt(x, cy)) && w.tileAt(x, cy) === '%'; x--) fall.push({ x, y: cy });
-      for (let x = cx + 1; w.tileAt(x, cy) === '%'; x++) fall.push({ x, y: cy });
+      for (let x = cx; w.tileAt(x, cy) === '%'; x++) fall.push({ x, y: cy });
+      w.obj.crumble.delete(k);
     }
   }
   if (fall.length) {

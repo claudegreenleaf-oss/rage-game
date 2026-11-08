@@ -293,6 +293,8 @@ export interface Player extends Box {
   hang: { vine: string; seg: number } | null;
   /** Ticks before Pip can grab a vine again after letting go. */
   regrab: number;
+  /** The vine Pip last leapt from (can't re-grab it until landing). */
+  lastVine: string | null;
 }
 
 /** Things the renderer/audio react to. Emitted during a tick, cleared at the start of the next. */

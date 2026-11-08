@@ -202,7 +202,7 @@ export class World {
     this.pip = {
       x: p.x, y: p.y, w: PIP_W, h: PIP_H, vx: 0, vy: 0, px: p.x, py: p.y, facing: 1,
       grounded: false, coyote: 0, jumpBuffer: 0, jumpHeld: false, jumping: false, bouncing: false,
-      airTicks: 0, dropThrough: 0, wallDir: 0, wallCoyote: 0, wallLock: 0, hang: null, regrab: 0,
+      airTicks: 0, dropThrough: 0, wallDir: 0, wallCoyote: 0, wallLock: 0, hang: null, regrab: 0, lastVine: null,
     };
     this.pipAlive = true;
     // Never spawn inside a corpse: stand on top of it instead.

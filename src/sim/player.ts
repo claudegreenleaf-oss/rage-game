@@ -116,6 +116,7 @@ export function updatePlayer(w: World, input: number, pressed: number): void {
   moveY(w);
   if (p.dropThrough > 0) p.dropThrough--;
   p.airTicks = p.grounded ? 0 : p.airTicks + 1;
+  if (p.grounded) p.lastVine = null;
   if (!p.grounded && p.regrab === 0 && w.obj.vines.length) tryGrab(w);
 }
 
@@ -132,6 +133,7 @@ function tryGrab(w: World): void {
   const cx = p.x + (p.w >> 1);
   let best: { vine: string; seg: number; d: number } | null = null;
   for (const v of w.obj.vines) {
+    if (v.id === p.lastVine) continue; // can't snag the vine you just leapt from until you land
     for (let i = 2; i < v.pts.length; i++) {
       const pt = v.pts[i]!;
       const dx = Math.abs(pt.x - cx);
@@ -161,12 +163,15 @@ function hang(w: World, input: number, pressed: number): boolean {
     else { p.hang = null; p.regrab = 16; w.fx.push({ t: 'release', vine: v.id }); return false; }
   }
   const pt = v.pts[p.hang!.seg]!;
-  pt.px -= dir * 1.3; // pump the swing
+  // Pump: pushing with the swing adds a lot, against it brakes gently.
+  const swing = pt.x - pt.px;
+  pt.px -= dir * (Math.sign(swing) === dir || Math.abs(swing) < 1 ? 3.2 : 1.6);
   pt.y += 1.2; // Pip's weight
   const vx = pt.x - pt.px, vy = pt.y - pt.py;
   if (pressed & Btn.Jump) {
     p.hang = null;
     p.regrab = 14;
+    p.lastVine = v.id;
     p.vx = Math.max(-56, Math.min(56, Math.round(vx * 1.3) + dir * 8));
     p.vy = -Math.round(w.tune.jump * 0.9) + Math.min(0, Math.round(vy * 0.5));
     p.jumping = true; p.jumpHeld = true; p.grounded = false;
