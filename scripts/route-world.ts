@@ -85,7 +85,7 @@ export function findRoute(start: World, goal: RouteGoal, budget = 40000, maxMs =
     return top;
   };
   const seen = new Set<string>();
-  const key = (w: World) => `${Math.round(w.pip.x / 48)},${Math.round(w.pip.y / 48)},${Math.round(w.pip.vx / 10)},${Math.round(w.pip.vy / 16)},${w.pip.grounded ? 1 : 0},${w.pip.hang ? w.pip.hang.seg : -1},${w.obj.platforms.map((p) => Math.round(p.y / 120)).join('')}|${w.corpses.map((c) => `${Math.round(c.x / 60)}.${Math.round(c.y / 60)}`).join(';')}`;
+  const key = (w: World) => `${Math.round(w.pip.x / 48)},${Math.round(w.pip.y / 48)},${Math.round(w.pip.vx / 10)},${Math.round(w.pip.vy / 16)},${w.pip.grounded ? 1 : 0},${w.pip.hang ? w.pip.hang.seg : -1},${w.pip.facing},${w.obj.gates.map((g) => (g.open > 0.5 ? 1 : 0)).join('')},${w.obj.platforms.map((p) => Math.round(p.y / 120)).join('')}|${w.corpses.map((c) => `${Math.round(c.x / 60)}.${Math.round(c.y / 60)}`).join(';')}`;
   push({ w: start, path: [], f: h(start), g: 0 });
   let expanded = 0;
   lastBest = null;

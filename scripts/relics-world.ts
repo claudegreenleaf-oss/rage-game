@@ -22,11 +22,12 @@ const out: Record<string, { room: string; from: string; script: string }> = {};
 for (const o of l.objects) {
   if (o.type !== 'relic') continue;
   let ok = false;
-  for (const e of l.exits ?? []) {
+  // Try the entrance closest to the relic first (wings are separate bands; most exits can't reach it).
+  for (const e of [...(l.exits ?? [])].sort((a, b) => Math.abs(a.y - o.y) - Math.abs(b.y - o.y))) {
     const w = new World(l, { entry: entryPoint(l, e) });
     const res = findRoute(w, { done: (x) => x.collected.has(o.id), cells: [{ x: o.x, y: o.y }] }, 60000, secs * 1000);
     if (res) { out[o.id] = { room: l.id, from: e.id, script: toScript(res.inputs, o.id) }; ok = true; break; }
   }
   console.log(`${ok ? 'ok  ' : 'MISS'} ${o.id} (${o.x},${o.y})${ok ? '' : ' closest ' + JSON.stringify(lastBest)}`);
+  writeFileSync(`${dir}/${zone}.json`, JSON.stringify(out)); // save as we go
 }
-writeFileSync(`${dir}/${zone}.json`, JSON.stringify(out));

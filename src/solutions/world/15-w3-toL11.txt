@@ -1,4 +1,4 @@
-# w3: to exit toL11 (found by scripts/plan-world.ts, 80 nodes)
+# w3: to exit toL11 (found by scripts/plan-world.ts, 72 nodes)
 right+jump 9
 right 7
 left 8
@@ -19,19 +19,20 @@ right 7
 left 8
 right+jump 14
 right+down 8
-right 2
-right+jump 18
 left 8
 right+jump 14
-right 6
+right+down 8
 left 8
 right+jump 14
-right 6
-jump 3
-wait 13
+right+down 8
+left 8
+right+jump 14
+right+down 8
+left 8
+right+jump 14
+right+down 8
+left 8
+right+jump 14
 right 2
 right+jump 18
-right 6
-wait 2
-jump 18
-right 700
+right 654

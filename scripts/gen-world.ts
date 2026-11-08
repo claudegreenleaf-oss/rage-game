@@ -180,7 +180,10 @@ type Piece =
   | ['jar', ('high' | 'low')?]
   | ['laser', number] // a blinking laser beam across the corridor, ceiling to floor
   | ['press'] // a periodic hydraulic press over the floor
-  | ['low', number]; // low ceiling crawl (1.5 rows tall)
+  | ['low', number] // low ceiling crawl (1.5 rows tall)
+  | ['eyegate'] // a shutter that is open only while Pip's flashlight is on the sensor beyond it
+  | ['eyepit', number] // the same, across a spike gap: keep facing the sensor as you jump
+  | ['eyevine', number]; // the same, across a vine pit: light the sensor from the swing
 
 class Band {
   x = 1;
@@ -192,8 +195,22 @@ class Band {
     this.r.carve(x, this.gy(ceil), 1, f - ceil);
   }
   flat(n: number) { for (let i = 0; i < n; i++) this.col(this.x++); }
+  /** A floor-to-ceiling shutter with a light sensor a few tiles past it, at eye height. A lamp marks the spot. */
+  shutter() {
+    const r = this.r;
+    const sid = r.nid('eye');
+    const gx = this.x;
+    this.flat(1);
+    r.objects.push({ type: 'gate', id: r.nid('g'), x: gx, y: this.gy(1), h: this.f - 1, plate: sid });
+    this.flat(3);
+    r.objects.push({ type: 'sensor', id: sid, x: this.x, y: this.gy(this.f - 2) });
+    r.light(this.x, this.gy(this.f - 2), '#ff5d7a', 1.5, true);
+    this.flat(3);
+    r.light(this.x - 1, this.gy(this.f - 1), '#ffe2a8', 3);
+  }
   run(pieces: Piece[], width: number) {
     for (const p of pieces) this.piece(p);
+    if (this.x > width - 3) throw new Error(`${this.r.id} band ${this.k}: pieces need ${this.x + 3} tiles, room is ${width}`);
     while (this.x < width - 1) this.flat(1);
   }
   piece(p: Piece) {
@@ -307,6 +324,13 @@ class Band {
         this.flat(5);
         break;
       }
+      case 'eyegate': case 'eyepit': case 'eyevine': {
+        if (p[0] === 'eyepit') this.piece(['gap', p[1]]);
+        else if (p[0] === 'eyevine') this.piece(['vine', p[1], 2]);
+        else this.flat(3);
+        this.shutter();
+        break;
+      }
       case 'low': {
         const n = p[1];
         for (let i = 0; i < n; i++) { this.col(this.x, this.f, this.f - 1); this.x++; }
@@ -318,6 +342,8 @@ class Band {
 
 interface WingSpec {
   id: string; name: string; biome: number; width: number; seed: number;
+  /** Lit only by Pip's flashlight and the lamps. */
+  dark?: boolean;
   /** Chamber ids, in order (one per band, bands 0-3). */
   chambers: string[];
   bands: Piece[][];
@@ -347,11 +373,11 @@ function wing(spec: WingSpec, hubIn: { room: string; exit: string }, hubOut: { r
   });
   r.objects.push({ type: 'spawn', id: 'spawn', x: 2, y: FLOOR - 1 });
   r.decorate(spec.seed);
-  return { room: r.build({ current: { dir: 1, speed: 1.5 } }), floors };
+  return { room: r.build({ current: { dir: 1, speed: 1.5 }, ...(spec.dark ? { dark: true } : {}) }), floors };
 }
 
 /** A hub slice of the central atrium: tall open space, balconies with relics, a bench. */
-function hub(id: string, name: string, biome: number, seed: number, opts: { in?: { room: string; exit: string }; out: { room: string; exit: string }; start?: boolean; sign?: string }): LevelData {
+function hub(id: string, name: string, biome: number, seed: number, opts: { in?: { room: string; exit: string }; out: { room: string; exit: string }; start?: boolean; sign?: string; dark?: boolean }): LevelData {
   const W = 52, H = 30;
   const r = new Room(id, name, W, H, biome);
   const floor = H - 3; // floor top row
@@ -375,7 +401,7 @@ function hub(id: string, name: string, biome: number, seed: number, opts: { in?:
   r.set(W - 1, floor - 1, '.');
   r.exit('out', W - 1, floor - 1, opts.out.room, opts.out.exit);
   r.decorate(seed);
-  return r.build();
+  return r.build(opts.dark ? { dark: true } : {});
 }
 
 // ---------------------------------------------------------------------------
@@ -403,22 +429,22 @@ const WINGS: WingSpec[] = [
     ],
   },
   {
-    id: 'w3', name: 'Deep Containment', biome: 3, width: 108, seed: 303, chambers: ['L09', 'L10', 'L11', 'L12'],
+    id: 'w3', name: 'Deep Containment', biome: 3, width: 108, seed: 303, chambers: ['L09', 'L10', 'L11', 'L12'], dark: true,
     bands: [
-      [['flat', 4], ['bench'], ['laser', 4], ['gap', 2], ['note'], ['shaft', 5], ['flat', 3], ['press'], ['jar', 'high'], ['flat', 3], ['down', 3], ['vine', 6], ['flat', 4]],
-      [['flat', 3], ['press'], ['crumble', 5], ['note'], ['flat', 3], ['shaft', 4], ['laser', 5], ['jar'], ['flat', 3], ['down', 2], ['gap', 3], ['flat', 4]],
-      [['flat', 3], ['vine', 7, 2], ['note', 'high'], ['flat', 2], ['lift', 4], ['press'], ['flat', 3], ['down', 4], ['bench'], ['laser', 4], ['jar'], ['flat', 4]],
+      [['flat', 4], ['bench'], ['eyegate'], ['gap', 2], ['note'], ['shaft', 5], ['flat', 3], ['press'], ['jar', 'high'], ['flat', 3], ['down', 3], ['vine', 6], ['flat', 4]],
+      [['flat', 3], ['press'], ['crumble', 5], ['note'], ['flat', 3], ['shaft', 4], ['laser', 5], ['jar'], ['flat', 3], ['down', 2], ['eyepit', 2], ['flat', 4]],
+      [['flat', 3], ['eyevine', 6], ['note', 'high'], ['flat', 2], ['lift', 4], ['press'], ['flat', 3], ['down', 4], ['bench'], ['laser', 4], ['jar'], ['flat', 4]],
       [['flat', 3], ['shaft', 5], ['crumble', 5], ['note'], ['flat', 3], ['press'], ['gap', 3], ['jar', 'high'], ['flat', 3], ['down', 3], ['vine', 6], ['flat', 4]],
       [['flat', 3], ['bench'], ['note'], ['laser', 4], ['flat', 3], ['shaft', 4], ['jar'], ['flat', 6]],
     ],
   },
   {
-    id: 'w4', name: 'The Core', biome: 4, width: 112, seed: 404, chambers: ['L13', 'L14', 'L15', 'L16'],
+    id: 'w4', name: 'The Core', biome: 4, width: 112, seed: 404, chambers: ['L13', 'L14', 'L15', 'L16'], dark: true,
     bands: [
-      [['flat', 4], ['bench'], ['vine', 8, 2], ['laser', 4], ['note'], ['shaft', 5], ['crumble', 5], ['jar', 'high'], ['flat', 2], ['press'], ['down', 3], ['gap', 3], ['flat', 4]],
-      [['flat', 3], ['raft', 8], ['shaft', 5], ['note', 'high'], ['laser', 4], ['crumble', 6], ['flat', 2], ['jar'], ['down', 3], ['vine', 7, 2], ['flat', 4]],
+      [['flat', 4], ['bench'], ['vine', 8, 2], ['eyegate'], ['note'], ['shaft', 5], ['crumble', 5], ['jar', 'high'], ['flat', 2], ['press'], ['down', 3], ['gap', 3], ['flat', 4]],
+      [['flat', 3], ['raft', 8], ['shaft', 5], ['note', 'high'], ['laser', 4], ['crumble', 6], ['flat', 2], ['jar'], ['down', 3], ['eyevine', 6], ['flat', 4]],
       [['flat', 3], ['press'], ['gap', 3], ['lift', 5], ['note'], ['flat', 2], ['vine', 8, 2], ['flat', 2], ['down', 5], ['bench'], ['laser', 5], ['jar', 'high'], ['flat', 4]],
-      [['flat', 3], ['shaft', 5], ['crumble', 6], ['note'], ['press'], ['flat', 2], ['raft', 8], ['jar'], ['flat', 2], ['down', 3], ['gap', 3], ['flat', 4]],
+      [['flat', 3], ['shaft', 5], ['crumble', 6], ['note'], ['press'], ['flat', 2], ['raft', 8], ['jar'], ['flat', 2], ['down', 3], ['eyepit', 2], ['flat', 4]],
     ],
   },
 ];
@@ -458,6 +484,7 @@ WINGS.forEach((spec, i) => {
     out: { room: spec.id, exit: 'hub' },
     start: i === 0,
     sign: h.sign,
+    dark: h.id === 'hub4',
   });
   rooms.push(hubRoom);
   const { room } = wing(spec, { room: h.id, exit: 'out' }, nextHub ? { room: nextHub.id, exit: 'in' } : null);

@@ -162,12 +162,12 @@
  "w3.n1": {
   "room": "w3",
   "from": "hub",
-  "script": "# w3.n1\nright 96\nwait 6\nleft 6\nright 70\nright+jump 3\nright 50\n"
+  "script": "# w3.n1\nright 186\nright+jump 3\nright 47\n"
  },
  "w3.j1": {
   "room": "w3",
   "from": "hub",
-  "script": "# w3.j1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 14\nright+down 8\nright+jump 9\nright 7\nright+jump 18\nright 8\nright+jump 18\nright 32\nright+jump 9\nright 39\nright+jump 18\nright 2\nright+jump 18\nright 2\nright+jump 18\nright 6\nleft 8\nright+jump 9\n"
+  "script": "# w3.j1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nright 34\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nright 2\nright+jump 18\nright 2\nright+jump 18\nright 32\nright+jump 9\nright 39\nright+jump 9\nright 39\nright+jump 18\n"
  },
  "w3.n2": {
   "room": "w3",
@@ -182,12 +182,12 @@
  "w3.n3": {
   "room": "w3",
   "from": "arr2",
-  "script": "# w3.n3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nleft 14\nright+jump 17\nright 13\nright+jump 3\nright 45\nright+jump 18\n"
+  "script": "# w3.n3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nleft 14\nright+jump 17\nright 13\nright+jump 3\nright 47\nright+jump 18\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 7\n"
  },
  "w3.j3": {
   "room": "w3",
   "from": "arr2",
-  "script": "# w3.j3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nleft 14\nright+jump 17\nright 13\nright+jump 18\nright 44\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nright 2\nright+jump 18\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 14\nright 6\njump 3\nwait 13\nright 2\nright+jump 18\nright 6\nwait 2\njump 18\nright 273\n"
+  "script": "# w3.j3\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nleft 14\nright+jump 17\nright 13\nright+jump 18\nright 44\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 287\n"
  },
  "w3.n4": {
   "room": "w3",
@@ -212,12 +212,12 @@
  "w4.n1": {
   "room": "w4",
   "from": "hub",
-  "script": "# w4.n1\nright 96\nright+jump 18\nright 6\nright+down 8\nright 64\nleft 6\nright 6\nleft 6\nright 59\n"
+  "script": "# w4.n1\nright 96\nright+jump 18\nright 6\nright+down 8\nright 144\n"
  },
  "w4.j1": {
   "room": "w4",
   "from": "hub",
-  "script": "# w4.j1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 23\nright 7\nright+jump 9\nright 9\nright+jump 21\nright 45\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 14\nright 2\nright+jump 18\nright 8\nright+jump 18\nright 32\nright+jump 9\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 32\nright+jump 18\n"
+  "script": "# w4.j1\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright 6\nleft 8\nright+jump 23\nright 7\nright+jump 9\nright 9\nright+jump 21\nright 45\nright+jump 9\nright 7\nleft 8\nright+jump 23\nright 7\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 14\nright+down 8\nleft 8\nright+jump 32\nright 2\nright+jump 18\nright 2\nright+jump 36\nright 2\nright+jump 18\nright 2\nright+jump 18\nright 34\nright+jump 18\nleft 8\nright+jump 14\nright 34\nright+jump 18\nleft 8\nright+jump 11\n"
  },
  "w4.n2": {
   "room": "w4",
