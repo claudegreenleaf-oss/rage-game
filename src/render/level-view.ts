@@ -5,9 +5,9 @@
 // darkness layer is one render-texture fill plus a few light stamps.
 import Phaser from 'phaser';
 import { DECOR_IDS, U, type Corpse, type DeathType, type LevelObject, type SimEvent } from '../sim/types';
-import type { World } from '../sim/world';
+import { canWallJump, type World } from '../sim/world';
 import { PIP_H, PIP_W, SIGN_RANGE } from '../sim/constants';
-import { gateBox, signText, type RtCrusher, type RtDoor, type RtPlate } from '../sim/hazards';
+import { FLASH_HALF_ANGLE, FLASH_RANGE, flashlightOrigin, gateBox, signText, type RtCrusher, type RtDoor, type RtPlate } from '../sim/hazards';
 import { audio } from '../audio/sfx';
 import { ATLAS, corpseFrame, type Look } from './pixel/sprites';
 import {
@@ -103,11 +103,16 @@ export class LevelView {
   private fgCover: boolean[][] | null = null;
   private fogs: Phaser.GameObjects.TileSprite[] = [];
   private rainCols: number[] = [];
-  private dark: Phaser.GameObjects.RenderTexture | null = null;
+  private darkRT: Phaser.GameObjects.RenderTexture | null = null;
   /** The room's darkness with every steady light already erased (baked once). */
   private darkStatic: Phaser.GameObjects.Image | null = null;
   private brush: Phaser.GameObjects.Image | null = null;
   private darkAlpha = 0;
+  /** Dark room: everything outside light is black; Pip's flashlight is the way to see. */
+  readonly dark: boolean;
+  private beamErase: Phaser.GameObjects.Graphics | null = null;
+  private beamGlow: Phaser.GameObjects.Graphics | null = null;
+  private sensors = new Map<string, { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; lit: number }>();
   /** Additive halos are toned down on the bright walls of the upper wings. */
   private haloK = 1;
   private staticLights: LightSpot[] = [];
@@ -132,6 +137,7 @@ export class LevelView {
   collected: { kind: 'note' | 'jar' } | null = null;
 
   constructor(private scene: Phaser.Scene, public world: World, private hooks: ViewHooks, opts: ViewOptions = {}) {
+    this.dark = !!world.level.dark && !world.level.credits;
     const add = scene.add;
     const lvl = world.level;
     this.act = lvl.credits ? 0 : lvl.palette ?? lvl.biome ?? lvl.act ?? 1;
@@ -179,11 +185,15 @@ export class LevelView {
     // Labels (credits): centred on (x, y) in tiles, `size` is a scale.
     for (const o of lvl.objects) {
       if (o.type !== 'label') continue;
-      const s = Math.max(1, Math.round(o.size ?? 1));
-      this.top.add(ptext(scene, o.x * T, o.y * T, o.text, { scale: s, outline: true, color: 0xfff4e4, origin: [0.5, 0.5] }));
+      // Small labels render at half scale (still whole screen pixels at zoom 4), wrapped to the room.
+      const s = (o.size ?? 1) < 0.8 ? 0.5 : Math.max(1, Math.round(o.size ?? 1));
+      const txt = ptext(scene, o.x * T, o.y * T, o.text, { scale: s, outline: s >= 1, color: 0xfff4e4, origin: [0.5, 0.5], align: 'center', wrap: Math.min(lvl.width - 2, 26) * T });
+      // Small print gets a dark backing so it stays legible over anything behind it.
+      if (s < 1) this.top.add(add.rectangle(txt.x, txt.y, Math.ceil(txt.width) + 4, Math.ceil(txt.height) + 2, KEY.k!, 0.78));
+      this.top.add(txt);
     }
 
-    if (opts.atmosphere) this.buildAtmosphere();
+    if (opts.atmosphere || this.dark) this.buildAtmosphere();
     this.root.add([this.glowLayer, this.top]);
     this.snapshot();
     this.render(1, 0);
@@ -195,7 +205,7 @@ export class LevelView {
     for (const d of w.obj.droppers) if (d.state !== 'gone' && d.state !== 'fall') extra.add(cellKey(d.def.x, d.def.y));
     return {
       W: w.W, H: w.H, act: this.act, tileAt: (cx, cy) => w.tileAt(cx, cy), extraSolid: extra,
-      decorBg: w.level.decor?.bg, decorIds: DECOR_IDS,
+      decorBg: w.level.decor?.bg, decorIds: DECOR_IDS, grip: canWallJump(w.level),
     };
   }
 
@@ -205,6 +215,7 @@ export class LevelView {
     this.root.destroy(true);
     this.brush?.destroy();
     this.darkStatic?.destroy();
+    this.beamErase?.destroy();
     for (const k of [this.terrainKey, this.waterKey, `fg_${this.id}`, `dark_${this.id}`]) if (this.scene.textures.exists(k)) this.scene.textures.remove(k);
     for (const img of this.droppers.values()) { const k = img.texture.key; if (this.scene.textures.exists(k)) this.scene.textures.remove(k); }
     for (const a of this.parallaxArt) { const k = a.img.texture.key; if (this.scene.textures.exists(k)) this.scene.textures.remove(k); }
@@ -243,6 +254,15 @@ export class LevelView {
       this.back.add(post);
     }
     for (const pl of o.plates) {
+      if (pl.light) {
+        const x = pl.def.x * T + 8, y = pl.def.y * T + 8;
+        const glow = add.image(x, y, ATLAS, 'halo').setTint(KEY.z!).setBlendMode(Phaser.BlendModes.ADD).setScale(1.4).setAlpha(0);
+        const img = add.image(x, y, ATLAS, 'sensor0');
+        this.back.add(img);
+        this.glowLayer.add(glow);
+        this.sensors.set(pl.id, { img, glow, lit: 0 });
+        continue;
+      }
       const btns: Phaser.GameObjects.Image[] = [];
       for (let i = 0; i < pl.def.w; i++) {
         const x = (pl.def.x + i) * T, y = (pl.def.y + 1) * T;
@@ -373,28 +393,27 @@ export class LevelView {
 
   private buildAtmosphere(): void {
     const s = this.scene, w = this.world, lvl = w.level;
-    const pal = actPal(this.act);
-    this.darkAlpha = lvl.credits ? 0 : this.act === 4 ? 0.7 : this.act === 3 ? 0.62 : this.act === 2 ? 0.42 : 0.22;
-    // Static light: trim strips along open floors and ceilings, sign monitors, lamps.
-    const solid = (cx: number, cy: number) => isSolidGlyph(w.tileAt(cx, cy));
-    for (let cy = 1; cy < w.H; cy++) for (let cx = 1; cx < w.W - 1; cx += 2) {
-      if (solid(cx, cy) && !solid(cx, cy - 1)) this.staticLights.push({ x: cx * T + 8, y: cy * T + 4, r: 12 });
-    }
-    for (const sg of w.obj.signs) this.staticLights.push({ x: sg.def.x * T + 8, y: sg.def.y * T + 9, r: 16, flicker: 1 });
+    // Only dark rooms get a darkness layer. Elsewhere lamps are just small glows (no decorative pools).
+    this.darkAlpha = this.dark ? 0.965 : 0;
+    this.haloK = this.dark ? 0.45 : 0.3;
+    for (const sg of w.obj.signs) this.staticLights.push({ x: sg.def.x * T + 8, y: sg.def.y * T + 9, r: 14, flicker: 1 });
     for (const o of lvl.objects) {
-      if (o.type === 'light') this.staticLights.push({ x: o.x * T + 8, y: o.y * T + 8, r: (o.radius ?? 4) * T * (this.act <= 2 ? 0.62 : 0.8), flicker: o.flicker ? 2 : 0 });
+      if (o.type === 'light') this.staticLights.push({ x: o.x * T + 8, y: o.y * T + 8, r: (o.radius ?? 4) * T * 0.75, flicker: o.flicker ? 2 : 0 });
     }
-    this.haloK = this.act <= 2 ? 0.45 : 0.8;
+    if (this.dark || w.obj.plates.some((p) => p.light)) {
+      this.beamGlow = s.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
+      this.glowLayer.add(this.beamGlow);
+    }
     if (this.darkAlpha > 0) {
       this.brush = s.make.image({ key: ATLAS, frame: 'light' }, false);
+      this.beamErase = s.make.graphics({}, false);
       // Bake the steady lights once (on a canvas) into a room-sized darkness map; each frame only copies
-      // the visible part into a view-sized texture and erases the moving lights (Pip, doors, lasers...).
+      // the visible part into a view-sized texture and erases the moving lights (the flashlight, lasers...).
       const key = `dark_${this.id}`;
       if (s.textures.exists(key)) s.textures.remove(key);
       const tex = s.textures.createCanvas(key, w.W * T, w.H * T)!;
       const ctx = tex.getContext();
-      const k = KEY.k!;
-      ctx.fillStyle = `rgba(${k >> 16},${(k >> 8) & 255},${k & 255},${this.darkAlpha})`;
+      ctx.fillStyle = `rgba(4,3,8,${this.darkAlpha})`;
       ctx.fillRect(0, 0, w.W * T, w.H * T);
       ctx.globalCompositeOperation = 'destination-out';
       for (const l of this.staticLights) {
@@ -402,8 +421,8 @@ export class LevelView {
         // Banded falloff, so the light reads as pixel art rather than a smooth airbrush.
         const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
         g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(0.35, 'rgba(0,0,0,1)');
-        g.addColorStop(0.36, 'rgba(0,0,0,0.7)'); g.addColorStop(0.62, 'rgba(0,0,0,0.7)');
-        g.addColorStop(0.63, 'rgba(0,0,0,0.38)'); g.addColorStop(0.85, 'rgba(0,0,0,0.38)');
+        g.addColorStop(0.36, 'rgba(0,0,0,0.75)'); g.addColorStop(0.62, 'rgba(0,0,0,0.75)');
+        g.addColorStop(0.63, 'rgba(0,0,0,0.42)'); g.addColorStop(0.85, 'rgba(0,0,0,0.42)');
         g.addColorStop(0.86, 'rgba(0,0,0,0.15)'); g.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = g;
         ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
@@ -412,13 +431,7 @@ export class LevelView {
       this.darkStatic = s.make.image({ x: 0, y: 0, key }, false).setOrigin(0);
       this.makeDarkRT();
     }
-    // Fog bands in the wetter, deeper wings.
-    if (this.act >= 2) for (let i = 0; i < 2; i++) {
-      const y = R(w.H * T * (0.35 + i * 0.35));
-      const f = s.add.tileSprite(0, y, w.W * T, 20, ATLAS, 'fog').setOrigin(0).setAlpha(this.act === 3 ? 0.18 : 0.24).setTint(pal.mote);
-      this.fogs.push(f);
-      this.front.add(f);
-    }
+    const solid = (cx: number, cy: number) => isSolidGlyph(w.tileAt(cx, cy));
     // Rain/drips through broken roofs: open cells in the top row.
     for (let cx = 1; cx < w.W - 1; cx++) if (!solid(cx, 0) && w.tileAt(cx, 0) !== '%') this.rainCols.push(cx);
   }
@@ -568,7 +581,12 @@ export class LevelView {
           this.terrainDirty = true;
           audio.play('poof');
           break;
-        case 'plate': audio.play('click', e.down ? 1 : 0.8); break;
+        case 'plate': {
+          const sv = this.sensors.get(e.id);
+          if (sv) { audio.play('click', e.down ? 1.5 : 1.1, 0.8); if (e.down) this.particles.sparkle(sv.img.x, sv.img.y, 6, KEY.z!); }
+          else audio.play('click', e.down ? 1 : 0.8);
+          break;
+        }
         case 'gate': audio.play('gate', e.open ? 1 : 0.85); break;
         case 'popSpike': {
           const p = this.popups.get(e.id);
@@ -819,6 +837,13 @@ export class LevelView {
 
     // Plates and gates.
     for (const pl of o.plates as RtPlate[]) {
+      const sv = this.sensors.get(pl.id);
+      if (sv) {
+        sv.lit = lerp(sv.lit, pl.pressed ? 1 : 0, 0.25);
+        sv.img.setFrame(pl.pressed ? 'sensor1' : 'sensor0');
+        sv.glow.setAlpha(sv.lit * (0.55 + Math.sin(this.t * 6) * 0.1));
+        continue;
+      }
       const v = this.plates.get(pl.id);
       if (!v) continue;
       for (const b of v.btns) { b.setFrame(pl.pressed ? 'plateBtnOn' : 'plateBtnOff'); b.y = (pl.def.y + 1) * T - (pl.pressed ? 2 : 3); }
@@ -951,7 +976,7 @@ export class LevelView {
       const c0 = Math.floor(P(p.x) / T) - 1, c1 = Math.floor(P(p.x + p.w) / T) + 1, r0 = Math.floor(P(p.y) / T) - 1, r1 = Math.floor(P(p.y + p.h) / T) + 1;
       let near = false;
       for (let cy = r0; cy <= r1 && !near; cy++) for (let cx = c0; cx <= c1; cx++) if (this.fgCover[cy]?.[cx]) { near = true; break; }
-      const target = near ? 0.35 : 1;
+      const target = near ? 0.25 : 0.85;
       this.fgArt.setAlpha(lerp(this.fgArt.alpha, target, 0.15));
     }
   }
@@ -1073,40 +1098,98 @@ export class LevelView {
   /** The view-sized darkness texture (recreated if the zoom changes; resizing a live one misplaces draws). */
   private makeDarkRT(): void {
     const cam = this.scene.cameras.main;
-    this.dark?.destroy();
-    this.dark = this.scene.add.renderTexture(0, 0, Math.ceil(cam.width / cam.zoom) + 4, Math.ceil(cam.height / cam.zoom) + 4).setOrigin(0);
-    this.glowLayer.addAt(this.dark, 0);
+    this.darkRT?.destroy();
+    this.darkRT = this.scene.add.renderTexture(0, 0, Math.ceil(cam.width / cam.zoom) + 4, Math.ceil(cam.height / cam.zoom) + 4).setOrigin(0);
+    this.glowLayer.addAt(this.darkRT, 0);
+  }
+
+  /** Pip's flashlight cone, raycast against the terrain: per ray, the distance it travels before a wall. */
+  private castBeam(): { ox: number; oy: number; base: number; rays: Array<{ a: number; d: number }> } | null {
+    const w = this.world;
+    if (!w.pipAlive) return null;
+    const o = flashlightOrigin(w);
+    const ox = P(o.x), oy = P(o.y), range = P(FLASH_RANGE);
+    const base = w.pip.facing > 0 ? 0 : Math.PI;
+    const spread = FLASH_HALF_ANGLE + 0.16, n = 44;
+    const rays: Array<{ a: number; d: number }> = [];
+    for (let i = 0; i <= n; i++) {
+      const a = -spread + (2 * spread * i) / n;
+      const dx = Math.cos(base + a), dy = Math.sin(base + a);
+      let d = 0;
+      while (d < range) {
+        const nd = d + 2;
+        if (isSolidGlyph(w.tileAt(Math.floor((ox + dx * nd) / T), Math.floor((oy + dy * nd) / T)))) break;
+        d = nd;
+      }
+      rays.push({ a, d: Math.min(range, d + 2) });
+    }
+    return { ox, oy, base, rays };
+  }
+
+  private fan(g: Phaser.GameObjects.Graphics, beam: NonNullable<ReturnType<LevelView['castBeam']>>, half: number, reach: number, dx: number, dy: number): void {
+    const pts: Phaser.Math.Vector2[] = [new Phaser.Math.Vector2(beam.ox - dx, beam.oy - dy)];
+    const range = P(FLASH_RANGE) * reach;
+    for (const r of beam.rays) {
+      if (Math.abs(r.a) > half) continue;
+      const d = Math.min(r.d, range);
+      pts.push(new Phaser.Math.Vector2(beam.ox + Math.cos(beam.base + r.a) * d - dx, beam.oy + Math.sin(beam.base + r.a) * d - dy));
+    }
+    if (pts.length > 2) g.fillPoints(pts, true);
   }
 
   /** Darkness: copy the visible part of the baked map into a view-sized texture, then erase moving lights. */
   private drawLighting(): void {
-    const rt = this.dark, brush = this.brush, base = this.darkStatic;
+    const w = this.world;
+    const beam = this.beamGlow || this.beamErase ? this.castBeam() : null;
+    // The visible beam itself: a faint warm wash with motes drifting in it.
+    if (this.beamGlow) {
+      const g = this.beamGlow.clear();
+      if (beam) {
+        g.fillStyle(0xfff0c8, this.dark ? 0.07 : 0.05); this.fan(g, beam, FLASH_HALF_ANGLE, 1, 0, 0);
+        g.fillStyle(0xfff0c8, this.dark ? 0.06 : 0.04); this.fan(g, beam, FLASH_HALF_ANGLE * 0.55, 0.8, 0, 0);
+        if (rng.next() < 0.35) {
+          const r = beam.rays[Math.floor(rng.next() * beam.rays.length)]!;
+          if (Math.abs(r.a) < FLASH_HALF_ANGLE) {
+            const d = r.d * rng.range(0.15, 0.95);
+            this.particles.spawn(beam.ox + Math.cos(beam.base + r.a) * d, beam.oy + Math.sin(beam.base + r.a) * d, { frame: 'p1', tint: 0xfff4d8, vx: rng.range(-3, 3), vy: rng.range(-4, 2), life: 1.2, alpha: 0.8 });
+          }
+        }
+      }
+    }
+    const rt = this.dark ? this.darkRT : null, brush = this.brush, base = this.darkStatic;
     if (!rt || !brush || !base) return;
-    const w = this.world, cam = this.scene.cameras.main;
+    const cam = this.scene.cameras.main;
     const vw = Math.ceil(cam.width / cam.zoom) + 4, vh = Math.ceil(cam.height / cam.zoom) + 4;
     if (rt.width !== vw || rt.height !== vh) { this.makeDarkRT(); return; }
     const vx = Math.floor(cam.scrollX + cam.width / 2 - cam.width / (2 * cam.zoom)) - 2;
     const vy = Math.floor(cam.scrollY + cam.height / 2 - cam.height / (2 * cam.zoom)) - 2;
     rt.setPosition(vx, vy);
     rt.clear();
-    // Outside the room stays dark too.
-    if (vx < 0 || vy < 0 || vx + vw > w.W * T || vy + vh > w.H * T) { rt.fill(KEY.k!, this.darkAlpha); rt.erase(base, -vx, -vy); }
+    if (vx < 0 || vy < 0 || vx + vw > w.W * T || vy + vh > w.H * T) { rt.fill(0x040308, this.darkAlpha); rt.erase(base, -vx, -vy); }
     rt.draw(base, -vx, -vy);
-    const stamp = (x: number, y: number, r: number) => {
+    const stamp = (x: number, y: number, r: number, a = 1) => {
       if (x + r < vx || y + r < vy || x - r > vx + vw || y - r > vy + vh) return;
-      brush.setScale(r / 24); rt.erase(brush, R(x - vx), R(y - vy));
+      brush.setScale(r / 24).setAlpha(a); rt.erase(brush, R(x - vx), R(y - vy));
     };
-    if (w.pipAlive) stamp(P(w.pip.x + w.pip.w / 2), P(w.pip.y + w.pip.h / 2), 44);
+    // Flashlight: soft-edged cone in three bands (the walls cast real shadows), plus a faint glow at Pip's feet.
+    if (beam && this.beamErase) {
+      const g = this.beamErase.clear();
+      g.fillStyle(0xffffff, 0.45); this.fan(g, beam, FLASH_HALF_ANGLE + 0.16, 1.08, vx, vy);
+      g.fillStyle(0xffffff, 0.7); this.fan(g, beam, FLASH_HALF_ANGLE, 0.92, vx, vy);
+      g.fillStyle(0xffffff, 1); this.fan(g, beam, FLASH_HALF_ANGLE * 0.6, 0.72, vx, vy);
+      rt.erase(g, 0, 0);
+    }
+    if (w.pipAlive) stamp(P(w.pip.x + w.pip.w / 2), P(w.pip.y + w.pip.h / 2), 22, 0.85);
     for (const l of this.staticLights) if (l.flicker) stamp(l.x, l.y, Math.sin(this.t * 19 + l.x) > 0.9 ? l.r * 0.6 : l.r);
-    for (const d of w.obj.doors) stamp(P(d.x + d.w / 2), P(d.y + d.h / 2), 30);
+    for (const d of w.obj.doors) stamp(P(d.x + d.w / 2), P(d.y + d.h / 2), 26);
     for (const b of this.benches) stamp(b.img.x, b.img.y - 8, b.glow.alpha > 0 ? 34 : 18);
-    for (const r of this.relics) if (r.img.visible) stamp(r.img.x, r.img.y, 14);
+    for (const sv of this.sensors.values()) if (sv.lit > 0.1) stamp(sv.img.x, sv.img.y, 20, sv.lit);
     for (const l of w.obj.lasers) {
       if (!l.active || l.beam.w <= 0) continue;
       const bx = P(l.beam.x), by = P(l.beam.y), bw = P(l.beam.w), bh = P(l.beam.h);
       const n = Math.max(1, Math.round(Math.max(bw, bh) / 14));
       for (let i = 0; i <= n; i++) stamp(bx + (bw * i) / n, by + (bh * i) / n, 14);
     }
-    for (const r of this.rags) stamp(r.pts[0]!.x, r.pts[0]!.y, 22);
+    brush.setAlpha(1);
   }
 }

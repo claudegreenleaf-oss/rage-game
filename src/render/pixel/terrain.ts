@@ -14,9 +14,12 @@ export type SolidFn = (cx: number, cy: number) => boolean;
 /** RGBA pixel buffer written straight into a canvas with one putImageData. */
 export class Buf {
   readonly data: Uint8ClampedArray;
+  /** Optional colour remap applied by set() (used to make playfield art pop). */
+  filter: ((c: number) => number) | null = null;
   constructor(readonly w: number, readonly h: number) { this.data = new Uint8ClampedArray(w * h * 4); }
   set(x: number, y: number, c: number, a = 1): void {
     if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
+    if (this.filter) c = this.filter(c);
     const i = (y * this.w + x) * 4;
     this.data[i] = (c >> 16) & 255; this.data[i + 1] = (c >> 8) & 255; this.data[i + 2] = c & 255; this.data[i + 3] = Math.round(a * 255);
   }
@@ -36,8 +39,48 @@ export const isSolidGlyph = (g: string | undefined): boolean => g !== undefined 
 
 const K = () => KEY.k!;
 
+// ---------------------------------------------------------------------------
+// Figure and ground. Anything you can stand on or that can kill you pops (brighter, more saturated,
+// thick ink outline, lit top edge); scenery recedes (darker, desaturated, low contrast).
+// ---------------------------------------------------------------------------
+const lum = (c: number) => ((c >> 16) & 255) * 0.3 + ((c >> 8) & 255) * 0.59 + (c & 255) * 0.11;
+const grey = (v: number) => { const g = Math.max(0, Math.min(255, Math.round(v))); return (g << 16) | (g << 8) | g; };
+
+/** The tone the background recedes toward, per act. */
+export function bgTone(pal: ActPal): number { return mix(mix(pal.deep2, pal.far, 0.5), KEY.k!, 0.7); }
+
+/** Push one background colour back: desaturate, compress contrast toward the act's tone, darken. */
+export function recede(c: number, tone: number): number {
+  const d = mix(c, grey(lum(c)), 0.62);
+  return mix(d, tone, 0.68);
+}
+
+/** Recede every opaque pixel of a buffer region in place. */
+export function recedeBuf(b: Buf, tone: number, x0 = 0, y0 = 0, x1 = b.w, y1 = b.h): void {
+  const cache = new Map<number, number>();
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const i = (y * b.w + x) * 4;
+    if (b.data[i + 3] === 0) continue;
+    const c = (b.data[i]! << 16) | (b.data[i + 1]! << 8) | b.data[i + 2]!;
+    let r = cache.get(c);
+    if (r === undefined) { r = recede(c, tone); cache.set(c, r); }
+    b.data[i] = (r >> 16) & 255; b.data[i + 1] = (r >> 8) & 255; b.data[i + 2] = r & 255;
+  }
+}
+
+/** Make a playfield colour pop: more saturated and a little brighter (ink stays ink). */
+export function pop(c: number): number {
+  if (c === KEY.k || c === KEY.K) return c;
+  const l = lum(c);
+  const r = (c >> 16) & 255, g = (c >> 8) & 255, bl = c & 255;
+  // Dark palettes get lifted more, so solids are always lighter than the receded back wall.
+  const lift = 14 + Math.max(0, 80 - l * 0.5);
+  const sat = (v: number) => Math.max(0, Math.min(255, Math.round(l + (v - l) * 1.35 + lift)));
+  return (sat(r) << 16) | (sat(g) << 8) | sat(bl);
+}
+
 /** One 16×16 lab panel at (ox, oy); `solid` tells it which neighbours are solid. */
-export function drawPanel(b: Buf, ox: number, oy: number, cx: number, cy: number, solid: SolidFn, pal: ActPal, decay = true): void {
+export function drawPanel(b: Buf, ox: number, oy: number, cx: number, cy: number, solid: SolidFn, pal: ActPal, decay = true, grip = false): void {
   const n = solid(cx, cy - 1), s = solid(cx, cy + 1), w = solid(cx - 1, cy), e = solid(cx + 1, cy);
   const nw = solid(cx - 1, cy - 1), ne = solid(cx + 1, cy - 1), sw = solid(cx - 1, cy + 1), se = solid(cx + 1, cy + 1);
   const deep = n && s && w && e && nw && ne && sw && se;
@@ -100,6 +143,29 @@ export function drawPanel(b: Buf, ox: number, oy: number, cx: number, cy: number
   if (n && e && !ne) b.set(ox + T - 1, oy, K());
   if (s && w && !sw) b.set(ox, oy + T - 1, K());
   if (s && e && !se) b.set(ox + T - 1, oy + T - 1, K());
+  // Thick outline: a second ink pixel just outside every exposed edge.
+  for (let k = 0; k < T; k++) {
+    if (!w && !((k === 0 && !n) || (k === T - 1 && !s))) b.set(ox - 1, oy + k, K());
+    if (!e && !((k === 0 && !n) || (k === T - 1 && !s))) b.set(ox + T, oy + k, K());
+    if (!s && !((k === 0 && !w) || (k === T - 1 && !e))) b.set(ox + k, oy + T, K());
+    if (!n && !((k === 0 && !w) || (k === T - 1 && !e))) b.set(ox + k, oy - 1, K());
+  }
+  // Lit top edge.
+  if (!n) for (let i = 1; i < T - 1; i++) { b.set(ox + i, oy + 1, pal.plateHi); b.set(ox + i, oy + 2, mix(pal.plateHi, pal.plateLight, 0.5)); }
+  // Grip faces (rooms with wall-jump): a bright mossy edge stripe and carved handholds.
+  if (grip) for (const [open, edge, dir] of [[!w, 1, 1], [!e, T - 2, -1]] as const) {
+    if (!open) continue;
+    for (let j = 0; j < T; j++) {
+      if ((j < 2 && !n) || (j > T - 3 && !s)) continue;
+      b.set(ox + edge, oy + j, (cy * T + j) % 3 === 0 ? pal.mossLight : 0x9cf26a);
+      b.set(ox + edge + dir, oy + j, (cy * T + j) % 4 === 0 ? pal.moss : 0x6fd14d);
+    }
+    for (let j = 3; j < T - 2; j += 5) {
+      const x = ox + edge + dir * 3;
+      b.set(x, oy + j - 1, pal.plateHi); b.set(x + dir, oy + j - 1, pal.plateHi);
+      b.set(x, oy + j, K()); b.set(x + dir, oy + j, K()); b.set(x + dir * 2, oy + j, pal.plateDark);
+    }
+  }
   if (!decay) return;
   // Moss on exposed tops: a lumpy cushion with tufts above and strands over the front.
   if (!n) {
@@ -117,15 +183,6 @@ export function drawPanel(b: Buf, ox: number, oy: number, cx: number, cy: number
       for (let k = 0; k < len; k++) b.set(ox + i, oy + 3 + k, k === len - 1 ? pal.mossLight : pal.mossDark);
     }
   }
-  // Ivy creeping up exposed sides.
-  for (const side of [w ? -1 : 0, e ? -1 : T - 1]) {
-    if (side < 0 || r(30 + side) > 0.35) continue;
-    const top = Math.floor(r(32 + side) * 8);
-    for (let j = top; j < T; j++) {
-      b.set(ox + side, oy + j, j % 3 === 0 ? pal.mossLight : pal.moss);
-      if (j % 4 === 1) b.set(ox + side + (side === 0 ? 1 : -1), oy + j, pal.mossDark);
-    }
-  }
 }
 
 /** Kept for callers that draw single blocks (title floor). */
@@ -138,8 +195,7 @@ function drawWall(b: Buf, ox: number, oy: number, cx: number, cy: number, solid:
   for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
     const gx = cx * T + i, gy = cy * T + j;
     let c = gx % 8 === 7 || gy % 8 === 7 ? pal.wallDark : pal.wall;
-    if (c === pal.wall && hash2(gx >> 3, gy >> 3, 41) < 0.12) c = mix(pal.wall, pal.wallDark, 0.35);
-    if (c === pal.wall && hash2(gx, gy, 42) < 0.015) c = pal.wallHi;
+    if (c === pal.wall && hash2(gx >> 3, gy >> 3, 41) < 0.08) c = mix(pal.wall, pal.wallDark, 0.3);
     b.set(ox + i, oy + j, c);
   }
   const d = r(0);
@@ -147,18 +203,18 @@ function drawWall(b: Buf, ox: number, oy: number, cx: number, cy: number, solid:
   if (d < 0.025) {
     for (let j = 4; j < 10; j++) for (let i = 4; i < 12; i++) put(i, j, j === 4 || j === 9 || i === 4 || i === 11 ? pal.plateDark : mix(KEY.k!, pal.glow, r(1) < 0.4 ? 0.3 : 0.1));
     put(6, 6, pal.glow); put(8, 10, KEY.K!); put(7, 10, KEY.K!);
-  } else if (d < 0.1) {
+  } else if (d < 0.05) {
     for (let j = 5; j < 11; j++) for (let i = 3; i < 13; i++) put(i, j, j % 2 ? pal.wallDark : mix(pal.wallDark, KEY.K!, 0.4));
-  } else if (d < 0.16) {
+  } else if (d < 0.08) {
     let x = 2 + Math.floor(r(3) * 10);
     for (let j = 1; j < 14; j++) { put(x, j, pal.wallDark); if (j % 3 === 0) x += r(4 + j) < 0.5 ? -1 : 1; }
-  } else if (d < 0.26 && act >= 3) {
+  } else if (d < 0.12 && act >= 3) {
     for (let i = 5; i < 11; i++) { put(i, 3, KEY.K!); put(i, 4, pal.trim); put(i, 5, mix(pal.trim, pal.wall, 0.5)); }
-  } else if (d < 0.3 && act >= 3) {
+  } else if (d < 0.14 && act >= 3) {
     for (const [x, y] of [[4, 11], [5, 12], [6, 12], [7, 12], [8, 12], [9, 12], [10, 11], [4, 13], [10, 13]] as const) put(x, y, KEY.o!);
   }
   // Cable runs span whole rows, sagging between brackets every few tiles.
-  if (hash2(0, cy, 47) < 0.3) {
+  if (hash2(0, cy, 47) < 0.12) {
     const y = 2 + Math.floor(hash2(1, cy, 47) * 10);
     for (let i = 0; i < T; i++) {
       const gx = cx * T + i, sag = Math.round(Math.sin(((gx % 48) / 48) * Math.PI) * 2);
@@ -245,6 +301,8 @@ export interface TerrainSource {
   /** Editor bg decor grid (chars index `decorIds`). */
   decorBg?: string[];
   decorIds?: readonly string[];
+  /** Wall-jump room: exposed vertical faces get a grip texture. */
+  grip?: boolean;
 }
 
 export const cellKey = (cx: number, cy: number): number => cy * 1000 + cx;
@@ -273,11 +331,15 @@ export function bakeTerrain(scene: Phaser.Scene, key: string, src: TerrainSource
     const i = 'abcdefghijklmnopqrstuvwxyzABCDEF'.indexOf(src.decorBg![cy]?.[cx] ?? '.');
     if (i >= 0) paintDecor(b, cx * T, cy * T, src.decorIds![i]!, pal, cx, cy);
   });
+  // Everything so far is scenery: push it back.
+  recedeBuf(b, bgTone(pal));
+  b.filter = pop;
   each((cx, cy, g) => {
     if (g === '}' || g === '{') drawConveyorHousing(b, cx * T, cy * T, pal);
-    else if (isSolidGlyph(g)) drawPanel(b, cx * T, cy * T, cx, cy, solid, pal);
+    else if (isSolidGlyph(g)) drawPanel(b, cx * T, cy * T, cx, cy, solid, pal, true, !!src.grip);
   });
   each((cx, cy, g) => { if (g === '^' || g === 'v' || g === '>' || g === '<') drawSpikes(b, cx * T, cy * T, g); });
+  b.filter = null;
   b.blit(tex.getContext());
   tex.refresh();
 }
@@ -329,7 +391,8 @@ export function stoneTexture(scene: Phaser.Scene, key: string, src: TerrainSourc
   const tex = scene.textures.createCanvas(key, T, T + 3)!;
   const b = new Buf(T, T + 3);
   const solid = isolated ? ((x: number, y: number) => x === cx && y === cy) : solidFn(src);
-  drawPanel(b, 0, 3, cx, cy, solid, actPal(src.act), true);
+  b.filter = pop;
+  drawPanel(b, 0, 3, cx, cy, solid, actPal(src.act), true, !!src.grip);
   b.blit(tex.getContext());
   tex.refresh();
 }

@@ -110,19 +110,21 @@ export class Game extends Phaser.Scene {
     kb.on('keydown-ESC', this.onEsc, this);
     kb.on('keydown-P', this.onEsc, this);
     window.addEventListener('keydown', this.onTab);
-    kb.on('keydown-M', () => audio.toggleMute());
+    kb.on('keydown-N', () => audio.toggleMute());
     kb.addCapture('SPACE,UP,DOWN,LEFT,RIGHT,TAB');
     this.game.events.on(Phaser.Core.Events.BLUR, this.onBlur, this);
     this.events.once('shutdown', () => {
       kb.off('keydown-ESC', this.onEsc, this);
       kb.off('keydown-P', this.onEsc, this);
       window.removeEventListener('keydown', this.onTab);
-      kb.removeAllListeners('keydown-M');
+      kb.removeAllListeners('keydown-N');
       this.game.events.off(Phaser.Core.Events.BLUR, this.onBlur, this);
       this.saveWorld();
       this.view.destroy();
     });
 
+    (this.scene.get('Backdrop') as Backdrop).setRecede(true);
+    this.events.once('shutdown', () => (this.scene.get('Backdrop') as Backdrop).setRecede(false));
     this.scene.launch('Hud', { game: this });
     this.scene.bringToTop('Hud');
     const ov = this.scene.get('Overlay') as Overlay;
@@ -189,9 +191,9 @@ export class Game extends Phaser.Scene {
     this.openPause();
   }
 
-  /** Tab toggles the map. A window listener, so it works while this scene is paused under the map or pause menu. */
+  /** M (or Tab) toggles the map. A window listener, so it works while this scene is paused under the map or pause menu. */
   private onTab = (e: KeyboardEvent): void => {
-    if (e.key !== 'Tab' || !this.campaign || this.ended) return;
+    if ((e.key !== 'Tab' && e.key !== 'm' && e.key !== 'M') || !this.campaign || this.ended) return;
     e.preventDefault();
     if (e.repeat) return;
     const sm = this.scene.manager;
@@ -229,6 +231,13 @@ export class Game extends Phaser.Scene {
     const cb = this.data_.onExit;
     this.scene.stop();
     cb?.(result);
+  }
+
+  /** Fast travel to a visited room (from the map). */
+  travel(id: string): boolean {
+    if (!this.campaign?.travelTo(id)) return false;
+    this.changeRoom();
+    return true;
   }
 
   saveWorld(): void {

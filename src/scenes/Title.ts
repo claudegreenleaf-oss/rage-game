@@ -167,7 +167,8 @@ export class Title extends Phaser.Scene {
     const buttons = [
       ...top,
       new Button(this, W / 2, 486, 'Editor', () => this.openEditor(editorScene), { color: C.rot }),
-      new Button(this, W / 2, 558, 'Paste code', () => void this.paste(), { color: C.paper }),
+      new Button(this, W / 2 - 104, 558, 'Paste code', () => void this.paste(), { color: C.paper, w: 196 }),
+      new Button(this, W / 2 + 104, 558, 'Settings', () => this.go(() => this.scene.start('Settings')), { color: C.paper, w: 196 }),
     ];
     buttons.forEach((b, i) => { b.setAlpha(0); this.tweens.add({ targets: b, alpha: 1, duration: 300, delay: 500 + i * 90, ease: 'Stepped', easeParams: [3] }); });
     new Menu(this, buttons);
@@ -177,10 +178,10 @@ export class Title extends Phaser.Scene {
     const unsub = audio.onMute(() => this.speaker.setFrame(audio.muted ? 'speakerOff' : 'speaker'));
     this.events.once('shutdown', () => unsub());
     this.speaker.setFrame(audio.muted ? 'speakerOff' : 'speaker');
-    this.input.keyboard?.on('keydown-M', () => audio.toggleMute());
+    this.input.keyboard?.on('keydown-N', () => audio.toggleMute());
 
     const total = progress.get().totalDeaths;
-    ptext(this, 18, H - 14, total > 0 ? `total deaths: ${total}` : 'arrows / wasd move · space jump · r restart', { scale: 2, outline: true, color: 0xfff4e4, origin: [0, 1] });
+    ptext(this, 18, H - 14, total > 0 ? `total deaths: ${total}` : 'arrows / wasd move · space jump · r restart · n mute', { scale: 2, outline: true, color: 0xfff4e4, origin: [0, 1] });
     ptext(this, W - 18, H - 14, 'a puzzle-platformer about dying usefully', { scale: 2, outline: true, color: 0xfff4e4, origin: [1, 1] }).setAlpha(0.85);
 
     if (this.cleared) this.showCleared(this.cleared);

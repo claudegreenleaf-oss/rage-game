@@ -8,6 +8,7 @@ import { LevelSelect } from './scenes/LevelSelect';
 import { ActCard } from './scenes/ActCard';
 import { Game, pendingScript, worldGameData, worldData, type GameData } from './scenes/Game';
 import { WorldMap } from './scenes/Map';
+import { Settings } from './scenes/Settings';
 import type { WorldDef } from './sim/campaign';
 import type { LevelData } from './sim/types';
 import { Hud } from './scenes/Hud';
@@ -32,7 +33,7 @@ const config: Phaser.Types.Core.GameConfig = {
   render: { antialias: false, pixelArt: true, roundPixels: true, powerPreference: 'high-performance' },
   fps: { target: 60, smoothStep: false },
   input: { keyboard: true, mouse: true, touch: false, gamepad: false },
-  scene: [Boot, Backdrop, Title, LevelSelect, ActCard, Game, Hud, Pause, WorldMap, Credits, End, ...extraScenes, Overlay],
+  scene: [Boot, Backdrop, Title, LevelSelect, ActCard, Game, Hud, Pause, WorldMap, Settings, Credits, End, ...extraScenes, Overlay],
 };
 
 let game = new Phaser.Game(config);

@@ -181,8 +181,12 @@ export class Backdrop extends Phaser.Scene {
 
   constructor() { super('Backdrop'); }
 
+  private veil!: Phaser.GameObjects.Rectangle;
+
   create(): void {
     this.setMood(0, true);
+    // During play the backdrop recedes behind the playfield (darker, lower contrast).
+    this.veil = this.add.rectangle(0, 0, W, H, 0x0c0a12, 0).setOrigin(0).setDepth(4);
     for (let i = 0; i < 30; i++) {
       const img = this.add.image(0, 0, 'atlas', i % 4 ? 'p1' : 'p2').setScale(S).setDepth(5);
       this.motes.push({ img, x: Math.random() * LW, y: Math.random() * LH, v: 1.5 + Math.random() * 4, ph: Math.random() * 6 });
@@ -206,6 +210,12 @@ export class Backdrop extends Phaser.Scene {
     const midL = this.add.tileSprite(0, H - 90 * S, LW, 90, `bdMid${act}`).setOrigin(0).setScale(S);
     root.add([s, ...lights.map((l) => l.img), farL, midL]);
     return { root, far: farL, mid: midL, lights };
+  }
+
+  /** Push the backdrop back (in play) or bring it forward (menus). */
+  setRecede(on: boolean): void {
+    this.tweens.killTweensOf(this.veil);
+    this.tweens.add({ targets: this.veil, fillAlpha: on ? 0.55 : 0, duration: 300 });
   }
 
   setMood(act: number, instant = false): void {

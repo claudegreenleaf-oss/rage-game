@@ -103,6 +103,82 @@ export interface Focusable extends Phaser.GameObjects.Container {
   redraw(): void;
 }
 
+/** A 0–1 slider: ← → (or A/D) while focused, or click/drag the bar. Shows ten pixel blocks and a percent. */
+export class Slider extends Phaser.GameObjects.Container {
+  focused = false;
+  private bg: Phaser.GameObjects.Image;
+  private blocks: Phaser.GameObjects.Image[] = [];
+  private pct: Phaser.GameObjects.BitmapText;
+  private uw: number;
+  private uh: number;
+  private dragging = false;
+  private readonly trackX: number;
+  private readonly trackW = 150;
+
+  constructor(scene: Phaser.Scene, x: number, y: number, label: string, private get: () => number, private set: (v: number) => void, opts: { w?: number } = {}) {
+    super(scene, Math.round(x), Math.round(y));
+    this.uw = Math.round((opts.w ?? 420) / UI);
+    this.uh = 19;
+    this.bg = scene.add.image(0, 0, panelTex(scene, this.uw, this.uh, 'paper')).setScale(UI);
+    const half = (this.uw * UI) / 2;
+    this.add(this.bg);
+    this.add(ptext(scene, -half + 16, -UI, label, { scale: 3, color: KEY.k!, origin: [0, 0.5] }));
+    this.trackX = half - 100 - this.trackW;
+    for (let i = 0; i < 10; i++) {
+      const b = scene.add.image(this.trackX + i * 15, -UI, 'atlas', 'p1').setOrigin(0, 0.5).setDisplaySize(12, 24);
+      this.blocks.push(b);
+      this.add(b);
+    }
+    this.pct = ptext(scene, half - 14, -UI, '', { scale: 3, color: KEY.k!, origin: [1, 0.5] });
+    this.add(this.pct);
+    this.setSize(this.uw * UI, this.uh * UI);
+    this.setInteractive({ useHandCursor: true });
+    this.on('pointerover', () => this.emit('focusme'));
+    this.on('pointerdown', (p: Phaser.Input.Pointer) => { this.dragging = true; this.fromPointer(p); });
+    scene.input.on('pointermove', (p: Phaser.Input.Pointer) => { if (this.dragging && p.isDown) this.fromPointer(p); });
+    scene.input.on('pointerup', () => { this.dragging = false; });
+    const kb = scene.input.keyboard;
+    const onKey = (e: KeyboardEvent) => {
+      if (!this.focused || !scene.scene.isActive()) return;
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.change(Math.round(this.get() * 10 - 1) / 10);
+      else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.change(Math.round(this.get() * 10 + 1) / 10);
+    };
+    kb?.on('keydown', onKey);
+    scene.events.once('shutdown', () => kb?.off('keydown', onKey));
+    this.redraw();
+    scene.add.existing(this);
+  }
+
+  private fromPointer(p: Phaser.Input.Pointer): void {
+    const m = this.getWorldTransformMatrix();
+    const lx = (p.x - m.tx) / m.scaleX;
+    this.change(Math.round(Phaser.Math.Clamp((lx - this.trackX) / this.trackW, 0, 1) * 20) / 20);
+  }
+
+  private change(v: number): void {
+    v = Phaser.Math.Clamp(v, 0, 1);
+    if (Math.abs(v - this.get()) < 1e-6) return;
+    this.set(v);
+    this.redraw();
+  }
+
+  setFocus(f: boolean): void {
+    if (f === this.focused) return;
+    this.focused = f;
+    if (f) audio.play('menu', 1, 0.8);
+    this.redraw();
+  }
+
+  activate(): void { this.change(this.get() >= 1 ? 0 : Math.round(this.get() * 10 + 1) / 10); }
+
+  redraw(): void {
+    this.bg.setTexture(panelTex(this.scene, this.uw, this.uh, this.focused ? 'btnHot' : 'paper'));
+    const v = this.get();
+    this.blocks.forEach((b, i) => b.setTint(i < Math.round(v * 10) ? (this.focused ? KEY.k! : 0x3f9a5b) : 0xc9c0b4));
+    this.pct.setText(`${Math.round(v * 100)}%`);
+  }
+}
+
 /** Keyboard + mouse navigation over a vertical/horizontal list of buttons. */
 export class Menu {
   index = 0;

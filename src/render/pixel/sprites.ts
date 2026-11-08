@@ -501,6 +501,32 @@ kWccccCCCk
 .kkkkkkkk.
 ..........
 `)));
+  // Light sensor: a lens in a bolted panel; the iris lights up gold-white while the beam hits it.
+  for (let f = 0; f < 2; f++) def(`sensor${f}`, 16, 16, (ctx) => {
+    const a = f ? 'z' : 'K', b = f ? 'w' : 'm', c = f ? 'y' : 'k';
+    new Pen(ctx).ascii(0, 0, rowsOf(`
+.kkkkkkkkkkkkkk.
+kMMMMMMMMMMMMMMk
+kMlkkkkkkkkkklMk
+kMkkk${a}${a}${a}${a}${a}${a}kkkMk
+kMkk${a}${a}${b}${b}${a}${a}${a}${a}kkMk
+kMk${a}${a}${b}${b}${b}${a}${a}${a}${a}${a}kMk
+kMk${a}${b}${b}${a}${c}${c}${a}${a}${a}${a}kMk
+kMk${a}${a}${a}${c}kk${c}${a}${a}${a}kMk
+kMk${a}${a}${a}${c}kk${c}${a}${a}${a}kMk
+kMk${a}${a}${a}${a}${c}${c}${a}${a}${a}${a}kMk
+kMk${a}${a}${a}${a}${a}${a}${a}${a}${a}${a}kMk
+kMkk${a}${a}${a}${a}${a}${a}${a}${a}kkMk
+kMkkk${a}${a}${a}${a}${a}${a}kkkMk
+kMlkkkkkkkkkklMk
+kMMMMMMMMMMMMMMk
+.kkkkkkkkkkkkkk.
+`));
+  });
+  // HUD: wall-jump icon (a gripped wall with a kick-off arrow).
+  def('iconWall', 13, 12, (ctx) => new Pen(ctx).ascii(0, 0, [
+    'kkk..........', 'kjk.....k....', 'kJk....kwk...', 'kjkkkkkwwwk..', 'kJwwwwwwwwwk.', 'kjkkkkkwwwk..',
+    'kJk....kwk...', 'kjk.....k....', 'kJk..........', 'kjk..........', 'kJk..........', 'kkk..........']));
   def('lamp', 10, 6, (ctx) => new Pen(ctx).ascii(0, 0, ['..kkkkkk..', '.kMMMMMMk.', 'kMMMMMMMMk', 'kzzzzzzzzk', '.kwwwwwwk.', '..kkkkkk..']));
   def('arrow', 7, 7, (ctx) => new Pen(ctx).ascii(0, 0, ['..k....', '..kk...', 'kkkwk..', 'kwwwwk.', 'kkkwk..', '..kk...', '..k....']));
   def('vineSeg', 2, 6, (ctx) => new Pen(ctx).ascii(0, 0, ['gG', 'Gg', 'gG', 'fG', 'gG', 'Gg']));

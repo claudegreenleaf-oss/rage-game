@@ -10,13 +10,14 @@ import { KEY } from '../render/pixel/pal';
 import { UI } from '../render/ui';
 import { audio } from '../audio/sfx';
 import { progress } from '../progress';
+import { canWallJump } from '../sim/world';
 
 const W = 1280, H = 720;
 const TIPS: Record<string, string> = {
   controls: '← → move · space jump, hold for higher · ↓ drop',
   drag: 'Hold ↓ and walk away from a body to drag it.',
-  walljump: 'Slide down a wall, then jump to kick off it.',
-  map: 'Tab opens the map.',
+  walljump: 'Green grip walls: slide down one, then jump to kick off. Only in rooms showing the wall icon.',
+  map: 'M opens the map. Pick a visited room to travel there.',
   vine: 'Jump into a vine to grab it. Jump again to let go.',
 };
 
@@ -40,6 +41,7 @@ export class Hud extends Phaser.Scene {
   private shown: Msg | null = null;
   private tip: { key: string; text: string; t: number } | null = null;
   private lastRoomRev = -1;
+  private wallIcon!: Phaser.GameObjects.Container;
   private banner: Phaser.GameObjects.BitmapText[] = [];
   private t = 0;
   private unsub: (() => void) | null = null;
@@ -70,6 +72,13 @@ export class Hud extends Phaser.Scene {
       this.noteText = ptext(this, 12 + 12 * UI, 10 + 32 * UI, '0', { scale: 2, origin: [0, 0.5] });
       this.jarText = ptext(this, 12 + 38 * UI, 10 + 32 * UI, '0', { scale: 2, origin: [0, 0.5] });
     }
+
+    // Wall-jump badge: shown in rooms where walls can be gripped.
+    this.wallIcon = this.add.container(12 + 95 * UI, 10, [
+      this.add.image(0, 0, panelTex(this, 20, 22, 'paper')).setOrigin(0).setScale(UI),
+      this.add.image(10 * UI, 11 * UI, ATLAS, 'iconWall').setScale(UI),
+    ]).setVisible(false);
+    this.wallIcon.setInteractive(new Phaser.Geom.Rectangle(0, 0, 20 * UI, 22 * UI), Phaser.Geom.Rectangle.Contains);
 
     // Small, always-visible restart hint (bottom-left).
     this.restart = this.add.container(16, H - 16, [
@@ -144,7 +153,16 @@ export class Hud extends Phaser.Scene {
       this.lastRoomRev = g.campaign.roomRev;
       this.showBanner(w.level.name, w.level.kind === 'chamber' ? 'CHAMBER' : '');
       this.lastDeaths = -1;
-      if (g.campaign.visited.size > 1) this.requestTip('map');
+    }
+    const wj = canWallJump(w.level);
+    // Tips queue up: one at a time, each once per save.
+    if (!this.tip && this.t > 1) {
+      if (wj) this.requestTip('walljump');
+      if (!this.tip && g.campaign && g.campaign.visited.size > 1) this.requestTip('map');
+    }
+    if (wj !== this.wallIcon.visible) {
+      this.wallIcon.setVisible(wj);
+      if (wj) { this.wallIcon.setScale(1.3); this.tweens.add({ targets: this.wallIcon, scale: 1, duration: 300, ease: 'Back.easeOut' }); }
     }
     const corpses = [...w.corpses].filter((c) => c.kind !== 'crate').sort((a, b) => a.born - b.born);
     for (let i = 0; i < 3; i++) {
@@ -186,7 +204,6 @@ export class Hud extends Phaser.Scene {
     }
     if (v?.hint) { this.requestTip(v.hint); v.hint = null; }
     for (const e of w.fx) {
-      if (e.t === 'wallSlide') this.requestTip('walljump');
       if (e.t === 'grab') this.requestTip('vine');
     }
     if (this.tip) { this.tip.t -= dt; if (this.tip.t <= 0) this.tip = null; }

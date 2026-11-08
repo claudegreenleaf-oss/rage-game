@@ -27,12 +27,13 @@ export class End extends Phaser.Scene {
     ptext(this, 590, 200, `${p.totalDeaths} total deaths`, { scale: 4, origin: [0, 0.5] });
     LEVELS.forEach((l, i) => {
       const col = i % 2, row = Math.floor(i / 2);
-      const x = 300 + col * 360, y = 262 + row * 40;
+      const x = 300 + col * 360, y = 256 + row * (LEVELS.length > 12 ? 36 : 40);
       const best = p.best[l.id];
       ptext(this, x, y, `${String(i + 1).padStart(2, '0')}  ${l.name}`, { scale: 3, origin: [0, 0.5] });
       ptext(this, x + 320, y, best === undefined ? '-' : `${best}`, { scale: 3, color: KEY.R!, origin: [1, 0.5] });
     });
-    const btn = new Button(this, 640, 640, 'Back to title', () => (this.scene.get('Overlay') as Overlay).irisClose(640, 360, 500, () => this.scene.start('Title')));
+    ptext(this, 640, 588, 'Music: Erik Satie, played on a felt piano', { scale: 2, outline: true, color: 0xfff4e4, origin: [0.5, 0.5] });
+    const btn = new Button(this, 640, 646, 'Back to title', () => (this.scene.get('Overlay') as Overlay).irisClose(640, 360, 500, () => this.scene.start('Title')));
     new Menu(this, [btn]);
     const layer = this.add.container(0, 0).setScale(4);
     this.pixels = new Pixels(this, layer, 200);
