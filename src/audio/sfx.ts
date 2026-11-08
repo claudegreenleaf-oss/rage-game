@@ -175,10 +175,10 @@ export const audio = {
     const src = bus.ctx.createBufferSource();
     src.buffer = jingleBuf;
     const g = bus.ctx.createGain();
-    g.gain.value = 0.8;
+    g.gain.value = 0.3; // gentle: measured in-game at ~4x the music at 0.8
     src.connect(g).connect(bus.sfx);
     src.start();
-    audio.duck(0.85, 1.4);
+    audio.duck(0.6, 1.4);
   },
 
   /** Dip the music under an important sound. `amount` 0–1 is how far it dips. */

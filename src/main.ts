@@ -22,7 +22,7 @@ const extraScenes: Phaser.Types.Scenes.SceneType[] = [];
 const editorMods = import.meta.glob<{ Editor?: Phaser.Types.Scenes.SceneType }>('./editor/Editor.ts', { eager: true });
 for (const m of Object.values(editorMods)) if (m.Editor) extraScenes.push(m.Editor);
 
-const game = new Phaser.Game({
+const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game',
   width: 1280,
@@ -33,7 +33,27 @@ const game = new Phaser.Game({
   fps: { target: 60, smoothStep: false },
   input: { keyboard: true, mouse: true, touch: false, gamepad: false },
   scene: [Boot, Backdrop, Title, LevelSelect, ActCard, Game, Hud, Pause, WorldMap, Credits, End, ...extraScenes, Overlay],
-});
+};
+
+let game = new Phaser.Game(config);
+
+// Some GPU backends (seen with ANGLE on Vulkan) reject the first framebuffers of a cold WebGL
+// process, and Phaser's renderer then fails to boot. If that happens, rebuild the game once the
+// backend is warm instead of leaving a blank screen.
+let bootRetries = 0;
+const onBootError = (e: ErrorEvent): void => {
+  if (!/Framebuffer status/.test(String(e.message)) || bootRetries >= 2) return;
+  e.preventDefault();
+  bootRetries++;
+  const broken = game;
+  setTimeout(() => {
+    try { broken.destroy(true); } catch { /* already gone */ }
+    game = new Phaser.Game(config);
+    if (window.__dt) window.__dt.game = game;
+  }, 200);
+};
+window.addEventListener('error', onBootError);
+setTimeout(() => window.removeEventListener('error', onBootError), 20000);
 
 declare global {
   interface Window { __dt?: { game: Phaser.Game; getWorld(): World | null; startLevel(id: string): void; runScript(src: string): void; armScript(id: string, src: string): void; goto(key: string, data?: object): void; startWorld(fresh?: boolean, def?: WorldDef, levels?: LevelData[]): boolean } }

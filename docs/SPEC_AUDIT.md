@@ -86,9 +86,13 @@ Changed: pixel art in an abandoned, overgrown high-tech lab (owner's direction) 
 
 ZzFX presets for every listed sound (redesigned soft at the owner's request); music per act. Changed: the soundtrack is public-domain Erik Satie (Gymnopédies 1–3, Ogives 1–4) on a synthesized felt piano. Mute is saved; audio starts on first input.
 
+**In-game audio (verified):** captured from a real Chrome's audio output (PulseAudio sink) while playing the title and L01: the audio context runs, the title piano sits around -25 to -30 dBFS, gameplay sounds peak at 0.6-0.7 over the music, nothing clips; the win fanfare was measured too loud (about 4x the music) and turned down 8.5 dB.
+
 ## §13 Screens
 
 Title (logo, bobbing Pip, rotating taunt sign, menu incl. editor and paste code, mute), level select (4 acts × 4), HUD (fading level name, corpse slots, bouncing death counter), pause (resume, restart, level select, mute), progress (unlocked, best deaths, total deaths, settings).
+
+**Robustness found by testing on a real GPU:** on ANGLE's Vulkan backend, a cold WebGL process rejected Phaser's first framebuffers and the game booted to a blank screen (0/4 cold boots). `src/main.ts` now rebuilds the game when that specific boot error occurs: 4/4 cold boots on Vulkan and on ANGLE/OpenGL.
 
 ## §15 Done means
 
@@ -96,7 +100,7 @@ Title (logo, bobbing Pip, rotating taunt sign, menu incl. editor and paste code,
 |---|---|
 | `npm test` passes: all solution replays with expected deaths, all rule tests | Verified locally and in CI |
 | Every level's invariants hold, encoded as tests | Verified |
-| Steady 60 fps in Chrome and Firefox; works without `localStorage` | Main-thread cost over the full world run: 0.8 ms median, 2.0 ms p95 per frame (budget 16.7 ms; spikes only on room changes). Measured headless with software GL, so a real-GPU frame-rate check by a human is still worthwhile. Storage-free run verified in Chromium and Firefox |
+| Steady 60 fps in Chrome and Firefox; works without `localStorage` | Verified on real hardware (RTX A6000) over the entire world run, all 25 rooms: Chrome (ANGLE/Vulkan) 59.8 fps average, p99 frame 16.8 ms, 99.9% of frames under 20 ms; Firefox 59.5 fps, p99 17.1 ms, 99.9%; zero GPU readback stalls. Storage-free run verified in both browsers |
 | Editor rebuilds, playtests, verifies and shares any level; link opens in a fresh browser | Verified |
 | Deployed to GitHub Pages from `main` via Actions | Verified |
 | `README.md` covers play, run, test, level format | Done |
