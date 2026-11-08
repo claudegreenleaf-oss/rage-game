@@ -1,6 +1,7 @@
-// Boot: generate textures, wait for the web font, then route (share link -> level, else title).
+// Boot: generate the sprite atlas and pixel font, then route (share link -> level, else title).
 import Phaser from 'phaser';
-import { makeTextures } from '../render/textures';
+import { buildAtlas } from '../render/pixel/sprites';
+import { makeFonts } from '../render/pixel/font';
 import { decodeLevel } from '../editor/share';
 import { audio } from '../audio/sfx';
 import { music } from '../audio/music';
@@ -10,13 +11,10 @@ export class Boot extends Phaser.Scene {
   constructor() { super('Boot'); }
 
   async create(): Promise<void> {
-    makeTextures(this);
-    try {
-      await Promise.race([
-        Promise.all([document.fonts.load('700 32px Fredoka'), document.fonts.load('600 18px Fredoka')]),
-        new Promise((r) => setTimeout(r, 1800)),
-      ]);
-    } catch { /* fall back to system fonts */ }
+    // All art and the pixel font are generated in code here.
+    buildAtlas(this);
+    makeFonts(this);
+    await Promise.resolve();
     const boot = document.getElementById('boot');
     if (boot) { boot.style.opacity = '0'; setTimeout(() => boot.remove(), 500); }
 

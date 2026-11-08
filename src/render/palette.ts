@@ -1,4 +1,5 @@
-// Colours, fonts and per-act moods. Flat vector, warm pastels, thick dark outlines (spec §11).
+// Shared colours and sizes. The pixel-art palettes live in ./pixel/pal.ts; these remain for the editor
+// overlays and DOM panels.
 export const C = {
   outline: 0x2b2433,
   ink: 0x2b2433,
@@ -38,10 +39,10 @@ export const C = {
 
 export const hex = (n: number): string => '#' + n.toString(16).padStart(6, '0');
 
-export const FONT = 'Fredoka, "Baloo 2", Nunito, "Trebuchet MS", system-ui, sans-serif';
+export const FONT = '"Pixelify Sans", "Silkscreen", ui-monospace, monospace';
 
 /** World pixels per tile; sim units -> px factor. */
-export const TILE = 40;
+export const TILE = 16;
 export const PX = TILE / 240;
 
 export interface Mood {

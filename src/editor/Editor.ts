@@ -57,7 +57,7 @@ export class Editor extends Phaser.Scene implements UiHost {
     this.doc = new EditorDoc(EditorDoc.loadDraft() ?? blankLevel());
     this.overlay = this.add.graphics().setDepth(20);
     this.hoverG = this.add.graphics().setDepth(21);
-    this.hoverText = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '22px', color: '#2b2433', fontStyle: '700' }).setOrigin(0.5).setDepth(22).setAlpha(0.8);
+    this.hoverText = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '10px', color: '#2b2433', fontStyle: '700' }).setOrigin(0.5).setDepth(22).setAlpha(0.8).setResolution(6);
     this.ui = new EditorUI(this);
     this.doc.onChange(() => { this.needsRebuild = true; this.validateSelection(); });
     this.input.mouse?.disableContextMenu();
@@ -231,7 +231,7 @@ export class Editor extends Phaser.Scene implements UiHost {
     this.fit();
     // Zone labels.
     for (const z of level.zones) {
-      this.texts.push(this.add.text((z.x + 0.08) * TILE, (z.y + 0.04) * TILE, z.id, { fontFamily: FONT, fontSize: '13px', color: '#1d6f6a', fontStyle: '700' }).setDepth(21).setResolution(2));
+      this.texts.push(this.add.text((z.x + 0.08) * TILE, (z.y + 0.04) * TILE, z.id, { fontFamily: FONT, fontSize: '6px', color: '#1d6f6a', fontStyle: '700' }).setDepth(21).setResolution(8));
     }
   }
 

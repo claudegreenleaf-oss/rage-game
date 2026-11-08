@@ -1,15 +1,20 @@
-// Shared UI pieces: text styles, chunky buttons, wooden sign bubbles.
+// Shared pixel UI pieces: chunky buttons, keyboard/mouse menus, wooden sign bubbles.
 import Phaser from 'phaser';
 import { C, FONT, hex } from './palette';
 import { audio } from '../audio/sfx';
+import { ptext } from './pixel/font';
+import { PHOSPHOR, panelTex, type PanelStyle } from './pixel/uitex';
+import { KEY } from './pixel/pal';
 
+/** Screen pixels per UI pixel. */
+export const UI = 3;
+
+/** Kept for DOM-free callers that still want a CSS font style. */
 export function textStyle(size: number, color: number = C.ink, extra: Phaser.Types.GameObjects.Text.TextStyle = {}): Phaser.Types.GameObjects.Text.TextStyle {
-  return { fontFamily: FONT, fontSize: `${size}px`, color: hex(color), fontStyle: '600', ...extra };
+  return { fontFamily: FONT, fontSize: `${size}px`, color: hex(color), ...extra };
 }
 
-export function dpr(): number {
-  return Math.min(2, (globalThis.devicePixelRatio as number | undefined) ?? 1);
-}
+export function dpr(): number { return 1; }
 
 export interface ButtonOpts {
   w?: number;
@@ -20,73 +25,74 @@ export interface ButtonOpts {
   icon?: string;
 }
 
-/** Chunky rounded button with hover/press tweens and a drop "shelf" shadow. */
+const styleFor = (color: number | undefined): PanelStyle =>
+  color === C.hazard ? 'btnRed' : color === C.rot ? 'btnGreen' : color === C.paper ? 'paper' : 'btn';
+
+/** Chunky pixel button: lifts a pixel and turns gold when focused, sinks when pressed. */
 export class Button extends Phaser.GameObjects.Container {
-  private bg: Phaser.GameObjects.Graphics;
-  private label: Phaser.GameObjects.Text;
-  private bw: number;
-  private bh: number;
-  private color: number;
+  private bg: Phaser.GameObjects.Image;
+  private label: Phaser.GameObjects.BitmapText;
+  private uw: number;
+  private uh: number;
+  private style: PanelStyle;
   focused = false;
   locked: boolean;
-  private pressT = 0;
+  private pressed = false;
+  private baseY: number;
 
   constructor(scene: Phaser.Scene, x: number, y: number, text: string, public onClick: () => void, opts: ButtonOpts = {}) {
-    super(scene, x, y);
-    this.bw = opts.w ?? 260;
-    this.bh = opts.h ?? 58;
-    this.color = opts.color ?? C.pip;
+    super(scene, Math.round(x), Math.round(y));
+    this.baseY = Math.round(y);
+    this.uw = Math.round((opts.w ?? 264) / UI);
+    this.uh = Math.round((opts.h ?? 57) / UI);
+    this.style = styleFor(opts.color);
     this.locked = !!opts.locked;
-    this.bg = scene.add.graphics();
-    this.label = scene.add.text(0, -2, text, textStyle(opts.size ?? 26, C.ink, { fontStyle: '700' })).setOrigin(0.5).setResolution(dpr());
+    this.bg = scene.add.image(0, 0, panelTex(scene, this.uw, this.uh, this.style)).setScale(UI).setOrigin(0.5, 0.5);
+    const scale = Math.max(2, Math.round((opts.size ?? 26) / 9));
+    this.label = ptext(scene, 0, 0, text, { scale, color: KEY.k!, origin: [0.5, 0.5] });
     this.add([this.bg, this.label]);
-    this.setSize(this.bw, this.bh + 8);
+    this.setSize(this.uw * UI, this.uh * UI);
     this.setInteractive({ useHandCursor: true });
     this.on('pointerover', () => this.emit('focusme'));
-    this.on('pointerdown', () => { this.pressT = 1; this.redraw(); });
+    this.on('pointerdown', () => { this.pressed = true; this.redraw(); });
     this.on('pointerup', () => this.activate());
-    this.on('pointerout', () => { this.pressT = 0; this.redraw(); });
+    this.on('pointerout', () => { this.pressed = false; this.redraw(); });
     this.redraw();
     scene.add.existing(this);
   }
 
+  override setY(y: number): this { this.baseY = Math.round(y); super.setY(Math.round(y)); return this; }
   setText(t: string): this { this.label.setText(t); return this; }
 
   setFocus(f: boolean): void {
     if (f === this.focused) return;
     this.focused = f;
-    this.scene.tweens.add({ targets: this, scale: f ? 1.06 : 1, duration: 160, ease: 'Back.easeOut' });
     if (f) audio.play('menu', 1, 0.8);
     this.redraw();
   }
 
   activate(): void {
-    this.pressT = 0;
+    this.pressed = false;
     this.redraw();
     if (this.locked) {
       audio.play('tock', 0.6);
-      this.scene.tweens.add({ targets: this, x: this.x + 6, duration: 50, yoyo: true, repeat: 3 });
+      this.scene.tweens.add({ targets: this, x: this.x + UI * 2, duration: 40, yoyo: true, repeat: 3 });
       return;
     }
     audio.play('select');
-    this.scene.tweens.add({ targets: this, scaleX: 1.12, scaleY: 0.9, duration: 70, yoyo: true, ease: 'Quad.easeOut', onComplete: () => this.onClick() });
+    this.pressed = true;
+    this.redraw();
+    this.scene.time.delayedCall(90, () => { this.pressed = false; this.redraw(); this.onClick(); });
   }
 
   redraw(): void {
-    const g = this.bg, w = this.bw, h = this.bh;
-    const press = this.pressT ? 4 : 0;
-    g.clear();
-    g.fillStyle(C.outline, 1);
-    g.fillRoundedRect(-w / 2 - 3, -h / 2 - 3 + press, w + 6, h + 6 + 6 - press, 20);
-    const fill = this.locked ? 0xd9cfc4 : this.focused ? C.gold : this.color;
-    g.fillStyle(fill, 1);
-    g.fillRoundedRect(-w / 2, -h / 2 + press, w, h, 17);
-    g.fillStyle(0xffffff, this.locked ? 0.25 : 0.45);
-    g.fillRoundedRect(-w / 2 + 10, -h / 2 + 5 + press, w - 20, 9, 5);
-    g.fillStyle(0x000000, 0.08);
-    g.fillRoundedRect(-w / 2 + 4, h / 2 - 12 + press, w - 8, 8, 5);
-    this.label.setY(-2 + press);
-    this.label.setColor(hex(this.locked ? 0x8d8296 : C.ink));
+    const st: PanelStyle = this.locked ? 'btnLocked' : this.focused ? 'btnHot' : this.style;
+    this.bg.setTexture(panelTex(this.scene, this.uw, this.uh, st));
+    const lift = this.pressed ? UI : this.focused ? -UI : 0;
+    this.bg.y = lift;
+    this.label.y = lift - UI;
+    this.label.setTint(this.locked ? 0x7d7287 : KEY.k!);
+    super.setY(this.baseY);
   }
 }
 
@@ -109,7 +115,7 @@ export class Menu {
   }
   focus(i: number, silent = false): void {
     this.index = (i + this.buttons.length) % this.buttons.length;
-    this.buttons.forEach((b, j) => { if (silent && j === this.index) { b.focused = true; b.setScale(1.06); b.redraw(); } else b.setFocus(j === this.index); });
+    this.buttons.forEach((b, j) => { if (silent && j === this.index) { b.focused = true; b.redraw(); } else b.setFocus(j === this.index); });
   }
   private onKey(e: KeyboardEvent): void {
     if (!this.scene.scene.isActive()) return;
@@ -122,61 +128,32 @@ export class Menu {
   }
 }
 
-/** Draws a wooden sign board (rounded, outlined, with grain) centred on (0,0). */
-export function drawBoard(g: Phaser.GameObjects.Graphics, w: number, h: number, tail = true): void {
-  g.clear();
-  g.fillStyle(0x000000, 0.14);
-  g.fillRoundedRect(-w / 2 + 3, -h / 2 + 6, w, h, 12);
-  if (tail) {
-    g.fillStyle(C.outline, 1);
-    g.fillTriangle(-9, h / 2 - 2, 9, h / 2 - 2, 0, h / 2 + 12);
-  }
-  g.fillStyle(C.outline, 1);
-  g.fillRoundedRect(-w / 2 - 3, -h / 2 - 3, w + 6, h + 6, 13);
-  g.fillStyle(C.wood, 1);
-  g.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-  if (tail) {
-    g.fillStyle(C.wood, 1);
-    g.fillTriangle(-5.5, h / 2 - 3, 5.5, h / 2 - 3, 0, h / 2 + 7);
-  }
-  g.fillStyle(C.woodLight, 1);
-  g.fillRoundedRect(-w / 2 + 5, -h / 2 + 4, w - 10, 5, 3);
-  g.fillStyle(C.woodDark, 0.35);
-  for (let y = -h / 2 + 15; y < h / 2 - 6; y += 11) g.fillRoundedRect(-w / 2 + 10, y, w - 20, 1.6, 1);
-  g.fillStyle(C.woodDark, 1);
-  g.fillCircle(-w / 2 + 8, 0, 2.2);
-  g.fillCircle(w / 2 - 8, 0, 2.2);
-}
-
-/** A wooden speech board with wrapped text; pops with an overshoot tween. */
+/** A wooden speech board with wrapped pixel text; pops with an overshoot. */
 export class SignBubble extends Phaser.GameObjects.Container {
-  private g: Phaser.GameObjects.Graphics;
-  private t: Phaser.GameObjects.Text;
+  private panel: Phaser.GameObjects.Image;
+  private t: Phaser.GameObjects.BitmapText;
   private current = '';
+  private s: number;
   shown = false;
 
-  constructor(scene: Phaser.Scene, private screenSize: number, private maxW: number) {
+  constructor(scene: Phaser.Scene, screenSize: number, private maxW: number) {
     super(scene, 0, 0);
-    this.g = scene.add.graphics();
-    this.t = scene.add.text(0, 0, '', textStyle(screenSize, C.ink, { fontStyle: '600', align: 'center' })).setOrigin(0.5);
-    this.add([this.g, this.t]);
+    this.s = Math.max(2, Math.round(screenSize / 7));
+    this.panel = scene.add.image(0, 0, panelTex(scene, 20, 10, 'crt', true)).setOrigin(0.5, 1).setScale(this.s);
+    this.t = scene.add.bitmapText(0, 0, 'pf', '', this.s).setOrigin(0.5, 0.5).setCenterAlign().setTint(PHOSPHOR);
+    this.add([this.panel, this.t]);
     this.setScale(0);
     this.setVisible(false);
     scene.add.existing(this);
   }
 
-  /** `zoom` lets world-space bubbles keep a constant on-screen size. */
-  setContent(text: string, zoom = 1): void {
-    if (text === this.current && this.t.style.resolution === zoom * dpr()) return;
+  setContent(text: string, _zoom = 1): void {
+    if (text === this.current) return;
     this.current = text;
-    const size = this.screenSize / zoom;
-    this.t.setFontSize(size).setResolution(zoom * dpr());
-    this.t.setWordWrapWidth(this.maxW / zoom, true).setText(text);
-    const pad = 12 / zoom;
-    const w = Math.max(this.t.width + pad * 2.2, 40 / zoom), h = this.t.height + pad * 1.5;
-    this.g.setScale(1 / zoom);
-    drawBoard(this.g, w * zoom, h * zoom);
-    this.t.setY(-1 / zoom);
+    this.t.setMaxWidth(this.maxW).setText(text);
+    const uw = Math.round(this.t.width / this.s) + 12, uh = Math.round(this.t.height / this.s) + 8;
+    this.panel.setTexture(panelTex(this.scene, uw | 1, uh, 'crt', true));
+    this.t.setY(-Math.round((uh / 2 + 4) * this.s) + this.s);
   }
 
   show(): void {
@@ -184,17 +161,22 @@ export class SignBubble extends Phaser.GameObjects.Container {
     this.shown = true;
     this.setVisible(true);
     this.scene.tweens.killTweensOf(this);
-    this.scene.tweens.add({ targets: this, scale: 1, duration: 320, ease: 'Back.easeOut', easeParams: [2.2] });
+    this.scene.tweens.add({ targets: this, scale: 1, duration: 280, ease: 'Back.easeOut', easeParams: [2.2] });
   }
 
   hide(): void {
     if (!this.shown) return;
     this.shown = false;
     this.scene.tweens.killTweensOf(this);
-    this.scene.tweens.add({ targets: this, scale: 0, duration: 160, ease: 'Back.easeIn', onComplete: () => this.setVisible(false) });
+    this.scene.tweens.add({ targets: this, scale: 0, duration: 140, ease: 'Quad.easeIn', onComplete: () => this.setVisible(false) });
   }
 
   wobble(): void {
-    this.scene.tweens.add({ targets: this, angle: { from: -6, to: 0 }, duration: 380, ease: 'Elastic.easeOut' });
+    this.scene.tweens.add({ targets: this, y: this.y - this.s * 2, duration: 90, yoyo: true, ease: 'Quad.easeOut' });
   }
+}
+
+/** A pixel panel image of a given screen size (rounded to UI pixels). */
+export function panel(scene: Phaser.Scene, x: number, y: number, w: number, h: number, style: PanelStyle = 'paper', scale = UI): Phaser.GameObjects.Image {
+  return scene.add.image(Math.round(x), Math.round(y), panelTex(scene, Math.round(w / scale), Math.round(h / scale), style)).setScale(scale);
 }

@@ -26,7 +26,7 @@ const game = new Phaser.Game({
   height: 720,
   backgroundColor: '#2b2433',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  render: { antialias: true, pixelArt: false, roundPixels: false, powerPreference: 'high-performance' },
+  render: { antialias: false, pixelArt: true, roundPixels: true, powerPreference: 'high-performance' },
   fps: { target: 60, smoothStep: false },
   input: { keyboard: true, mouse: true, touch: false, gamepad: false },
   scene: [Boot, Backdrop, Title, LevelSelect, ActCard, Game, Hud, Pause, Credits, End, ...extraScenes, Overlay],

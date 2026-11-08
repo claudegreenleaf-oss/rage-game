@@ -39,7 +39,6 @@ export class Game extends Phaser.Scene {
   private baseScroll = { x: 0, y: 0 };
   private trauma = 0;
   private punchV = 0;
-  private punch = 0;
   private ended = false;
   private shakeT = 0;
   private lastDeaths = 0;
@@ -51,7 +50,6 @@ export class Game extends Phaser.Scene {
     this.acc = 0;
     this.ended = false;
     this.trauma = 0;
-    this.punch = 0;
     this.punchV = 0;
   }
 
@@ -65,7 +63,7 @@ export class Game extends Phaser.Scene {
     const cam = this.cameras.main;
     cam.setBackgroundColor('rgba(0,0,0,0)');
     this.view = new LevelView(this, this.world, {
-      shake: (a) => { this.trauma = Math.min(1, this.trauma + a); },
+      shake: (a) => { this.trauma = Math.min(1, this.trauma + a * 1.2); },
       punch: (a) => { this.punchV += a * 28; },
       flash: () => (this.scene.get('Overlay') as Overlay).flash(),
     });
@@ -90,7 +88,7 @@ export class Game extends Phaser.Scene {
 
     const act = d.mode === 'play' && d.index !== undefined ? actOf(d.index).n : d.level.act ?? 1;
     (this.scene.get('Backdrop') as Backdrop).setMood(d.mode === 'credits' ? 0 : act);
-    music.play(d.mode === 'credits' ? 0 : act);
+    music.play(d.mode === 'credits' ? 4 : act);
 
     this.scene.launch('Hud', { game: this });
     this.scene.bringToTop('Hud');
@@ -100,14 +98,15 @@ export class Game extends Phaser.Scene {
     ov.irisOpen(sp.x, sp.y, 750);
   }
 
-  /** Fit the whole level on screen with a little room for the HUD. */
+  /** Fit the whole level at the largest whole-number zoom that leaves room for the HUD. */
   private fitCamera(): void {
     const cam = this.cameras.main;
     const wpx = this.world.W * TILE, hpx = this.world.H * TILE;
-    const z = Math.min((W - 48) / wpx, (H - 120) / hpx, 2.6);
+    const z = Math.max(1, Math.min(6, Math.floor(Math.min((W - 40) / wpx, (H - 116) / hpx))));
     this.baseZoom = z;
     cam.setZoom(z);
-    cam.centerOn(wpx / 2, hpx / 2 - 16 / z);
+    cam.setRoundPixels(true);
+    cam.centerOn(wpx / 2, hpx / 2 - Math.round(12 / z));
     this.baseScroll = { x: cam.scrollX, y: cam.scrollY };
     this.view.setZoom(z);
   }
@@ -194,18 +193,15 @@ export class Game extends Phaser.Scene {
   private updateCamera(dt: number): void {
     const cam = this.cameras.main;
     this.shakeT += dt;
-    this.trauma = Math.max(0, this.trauma - dt * 1.6);
+    this.trauma = Math.max(0, this.trauma - dt * 1.8);
     const s = this.trauma * this.trauma;
-    const ox = (Math.sin(this.shakeT * 53) + Math.sin(this.shakeT * 31.7) * 0.6) * 9 * s;
-    const oy = (Math.cos(this.shakeT * 47) + Math.sin(this.shakeT * 27.1) * 0.6) * 7 * s;
-    // punch zoom: critically-damped-ish spring
-    this.punchV += -this.punch * 240 * dt;
-    this.punchV *= Math.exp(-dt * 14);
-    this.punch += this.punchV * dt;
-    cam.setZoom(this.baseZoom * (1 + this.punch));
-    cam.setRotation(Math.sin(this.shakeT * 41) * 0.012 * s);
+    // Shake in whole world pixels so the art never shimmers.
+    const ox = Math.round((Math.sin(this.shakeT * 53) + Math.sin(this.shakeT * 31.7) * 0.6) * 3 * s);
+    const oy = Math.round((Math.cos(this.shakeT * 47) + Math.sin(this.shakeT * 27.1) * 0.6) * 2.5 * s);
+    this.punchV = 0;
+    cam.setZoom(this.baseZoom);
     const wpx = this.world.W * TILE, hpx = this.world.H * TILE;
-    cam.centerOn(wpx / 2 + ox / cam.zoom, hpx / 2 - 16 / this.baseZoom + oy / cam.zoom);
+    cam.centerOn(wpx / 2 + ox, hpx / 2 - Math.round(12 / this.baseZoom) + oy);
     void this.baseScroll;
   }
 
@@ -220,8 +216,6 @@ export class Game extends Phaser.Scene {
     const door = this.world.obj.doors[0];
     const target = door ? this.toScreen(door.x + door.w / 2, door.y + door.h / 2) : { x: W / 2, y: H / 2 };
     this.events.emit('won', { deaths, newBest });
-    // zoom on the door, then iris
-    this.tweens.add({ targets: this, baseZoom: this.baseZoom * 1.18, duration: 900, ease: 'Sine.easeInOut' });
     this.time.delayedCall(700, () => {
       const t2 = door ? this.toScreen(door.x + door.w / 2, door.y + door.h / 2) : target;
       (this.scene.get('Overlay') as Overlay).irisClose(t2.x, t2.y, 650, () => this.afterWin(deaths));

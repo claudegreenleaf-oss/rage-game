@@ -1,22 +1,27 @@
-// Act title card: iris wipe, the act name bouncing in letter by letter, one line from the sign.
+// Act title card: iris wipe, the act name bouncing in letter by letter, one line from the sign,
+// and Pip scampering across the floor.
 import Phaser from 'phaser';
-import { C, FONT, MOODS, hex } from '../render/palette';
-import { SignBubble, textStyle, dpr } from '../render/ui';
-import { defaultPose, drawPip } from '../render/draw-player';
+import { SignBubble, UI } from '../render/ui';
+import { ATLAS } from '../render/pixel/sprites';
+import { ptext } from '../render/pixel/font';
+import { panelTex } from '../render/pixel/uitex';
+import { ACT_PAL, KEY } from '../render/pixel/pal';
 import { LEVELS, type ActInfo } from '../levels';
 import { audio } from '../audio/sfx';
 import { music } from '../audio/music';
+import { groundTexture } from './Title';
 import type { GameData } from './Game';
 import type { Backdrop } from './Backdrop';
 import type { Overlay } from './Overlay';
 
 const NUM = ['ZERO', 'ONE', 'TWO', 'THREE'];
+const S = 4;
 
 export class ActCard extends Phaser.Scene {
   private act!: ActInfo;
   private index = 0;
   private leaving = false;
-  private pip!: Phaser.GameObjects.Graphics;
+  private pip!: Phaser.GameObjects.Image;
   private t = 0;
   constructor() { super('ActCard'); }
 
@@ -25,49 +30,41 @@ export class ActCard extends Phaser.Scene {
   create(): void {
     (this.scene.get('Backdrop') as Backdrop).setMood(this.act.n);
     music.play(this.act.n);
-    const mood = MOODS[this.act.n]!;
-    const dim = this.add.rectangle(640, 360, 1280, 720, C.outline, 0.35);
-    void dim;
-    const disc = this.add.graphics();
-    disc.fillStyle(mood.skyTop, 1); disc.fillCircle(640, 330, 290);
-    disc.lineStyle(10, C.outline, 1); disc.strokeCircle(640, 330, 290);
-    disc.lineStyle(4, C.gold, 1); disc.strokeCircle(640, 330, 302);
-    disc.setScale(0);
-    this.tweens.add({ targets: disc, scale: 1, duration: 700, ease: 'Back.easeOut', delay: 150 });
+    const pal = ACT_PAL[this.act.n]!;
+    groundTexture(this, 'titleGround', 21);
+    this.add.image(0, 640 - 3 * S, 'titleGround').setOrigin(0).setScale(S);
 
-    const small = this.add.text(640, 210, `ACT ${NUM[this.act.n]}`, textStyle(28, C.ink, { fontStyle: '700' })).setOrigin(0.5).setAlpha(0).setResolution(dpr());
-    this.tweens.add({ targets: small, alpha: 0.75, y: 200, duration: 500, delay: 450 });
+    const card = this.add.image(640, 300, panelTex(this, 150, 70, 'paper')).setScale(UI).setScale(0);
+    this.tweens.add({ targets: card, scale: UI, duration: 420, ease: 'Back.easeOut', delay: 150 });
+    const small = ptext(this, 640, 222, `ACT ${NUM[this.act.n]}`, { scale: 3, color: 0x8a7a8f, origin: [0.5, 0.5] }).setAlpha(0);
+    this.tweens.add({ targets: small, alpha: 1, duration: 300, delay: 450, ease: 'Stepped', easeParams: [3] });
 
     const word = this.act.name.toUpperCase();
-    let size = 92;
-    const style = (sz: number) => ({ fontFamily: FONT, fontSize: `${sz}px`, fontStyle: '700', color: hex(C.pip), stroke: '#2b2433', strokeThickness: Math.round(sz / 6) });
-    const probe = this.add.text(0, 0, word, style(size)).setVisible(false);
-    if (probe.width > 500) size = Math.floor(size * 500 / probe.width);
-    probe.destroy();
-    const st = style(size);
-    const meas = this.add.text(0, 0, word, st).setVisible(false);
-    let x = 640 - (meas.width - word.length * 6) / 2;
-    meas.destroy();
+    const scale = word.length > 8 ? 7 : 9;
+    const adv = 8 * scale;
+    let x = 640 - ((word.length - 1) * adv + 7 * scale) / 2;
     [...word].forEach((ch, i) => {
-      if (ch === ' ') { x += size * 0.3; return; }
-      const t = this.add.text(x, 300, ch, { ...st, color: hex(this.act.n === 1 ? C.hazard : this.act.n === 2 ? 0x6fbf8f : 0xb48cd1) }).setOrigin(0, 0.5).setResolution(dpr());
-      x += t.width - 6;
-      t.setScale(0).setAngle(-20);
-      this.tweens.add({ targets: t, scale: 1, angle: 0, duration: 650, delay: 600 + i * 70, ease: 'Back.easeOut', easeParams: [3], onStart: () => audio.play('pop', 1 + i * 0.06, 0.5) });
-      this.tweens.add({ targets: t, y: 290, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: 1400 + i * 90 });
+      if (ch === ' ') { x += adv; return; }
+      const t = ptext(this, x, 292, ch, { scale, bold: true, color: pal.accent, origin: [0, 0.5] });
+      const y0 = t.y;
+      t.y = y0 - 260; t.setAlpha(0);
+      this.tweens.add({ targets: t, y: y0, alpha: 1, duration: 600, delay: 600 + i * 70, ease: 'Bounce.easeOut', onStart: () => audio.play('pop', 1 + i * 0.06, 0.5) });
+      this.tweens.add({ targets: t, y: y0 - scale, duration: 400, yoyo: true, repeat: -1, ease: 'Stepped', easeParams: [1], delay: 1600 + i * 110, repeatDelay: 1100 });
+      x += adv;
     });
 
-    const sign = new SignBubble(this, 22, 460);
-    sign.setPosition(640, 430);
+    const sign = new SignBubble(this, 21, 470);
+    sign.setPosition(640, 470);
     sign.setContent(this.act.line);
     this.time.delayedCall(1300, () => { sign.show(); audio.play('tock'); });
 
-    this.pip = this.add.graphics();
+    this.pip = this.add.image(-40, 640 - 3 * S, ATLAS, 'pip_run0').setOrigin(0.5, 1).setScale(S);
     const lvl = LEVELS[this.index];
-    this.add.text(640, 668, lvl ? `Level ${this.index + 1} · ${lvl.name}` : '', textStyle(20, C.paper, { fontStyle: '600' })).setOrigin(0.5).setAlpha(0.8).setResolution(dpr());
-    this.add.text(640, 698, 'press any key', textStyle(15, C.paper)).setOrigin(0.5).setAlpha(0.5).setResolution(dpr());
+    ptext(this, 640, 676, lvl ? `level ${this.index + 1} · ${lvl.name}` : '', { scale: 3, outline: true, color: 0xfff4e4, origin: [0.5, 0.5] });
+    const any = ptext(this, 640, 704, 'press any key', { scale: 2, outline: true, color: KEY.z!, origin: [0.5, 0.5] });
+    this.tweens.add({ targets: any, alpha: 0.3, duration: 500, yoyo: true, repeat: -1, ease: 'Stepped', easeParams: [1] });
 
-    (this.scene.get('Overlay') as Overlay).irisOpen(640, 330, 700);
+    (this.scene.get('Overlay') as Overlay).irisOpen(640, 300, 700);
     this.time.delayedCall(3800, () => this.leave());
     this.time.delayedCall(500, () => {
       this.input.keyboard?.once('keydown', () => this.leave());
@@ -77,14 +74,8 @@ export class ActCard extends Phaser.Scene {
 
   override update(_t: number, dms: number): void {
     this.t += dms / 1000;
-    const g = this.pip;
-    g.clear();
-    const p = defaultPose();
-    const x = -60 + ((this.t * 150) % 1400);
-    p.run = this.t * 22; p.runAmt = 1; p.lean = 0.12; p.lookX = 1;
-    g.save(); g.translateCanvas(x, 620); g.scaleCanvas(1.6, 1.6);
-    drawPip(g, 0, 0, p);
-    g.restore();
+    const x = -40 + ((this.t * 220) % 1400);
+    this.pip.setPosition(Math.round(x / S) * S, 640 - 3 * S).setFrame(`pip_run${Math.floor(this.t * 12) % 4}`);
   }
 
   private leave(): void {
@@ -92,6 +83,6 @@ export class ActCard extends Phaser.Scene {
     this.leaving = true;
     const level = LEVELS[this.index];
     if (!level) { this.scene.start('Title'); return; }
-    (this.scene.get('Overlay') as Overlay).irisClose(640, 330, 500, () => this.scene.start('Game', { level, mode: 'play', index: this.index } satisfies GameData));
+    (this.scene.get('Overlay') as Overlay).irisClose(640, 300, 500, () => this.scene.start('Game', { level, mode: 'play', index: this.index } satisfies GameData));
   }
 }

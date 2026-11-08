@@ -1,18 +1,19 @@
-// Draws a World every frame: terrain, objects, corpses, Pip, water, lasers, particles, signs.
-// Purely a reader of sim state; reacts to world.fx for juice and sound.
+// Draws a World as pixel art: baked terrain, pooled sprites for objects, corpses, Pip and particles.
+// Purely a reader of sim state; reacts to world.fx for juice and sound. Nothing is redrawn per frame:
+// sprites are only moved and re-framed, and the terrain is re-baked only when the tiles change.
 import Phaser from 'phaser';
-import { U, type Corpse, type DeathType, type SimEvent, type Stage } from '../sim/types';
+import { U, type Corpse, type DeathType, type SimEvent } from '../sim/types';
 import type { World } from '../sim/world';
 import { SIGN_RANGE } from '../sim/constants';
-import { gateBox, signText, type RtDoor } from '../sim/hazards';
-import { C, PX, TILE } from './palette';
-import { cellKey, drawBlock, drawSpikes, drawTerrain, type ExtraSolids } from './draw-tiles';
-import { defaultPose, drawPip, type PipPose } from './draw-player';
-import { drawCorpse, type CorpseLook } from './draw-corpse';
-import { Particles } from './fx';
-import { rng } from './rng';
-import { SignBubble, textStyle, dpr } from './ui';
+import { gateBox, signText, type RtCrusher, type RtDoor, type RtPlate } from '../sim/hazards';
 import { audio } from '../audio/sfx';
+import { ATLAS, corpseFrame, type Look } from './pixel/sprites';
+import { T, bakeTerrain, bakeWater, cellKey, crusherTexture, dripPoints, stoneTexture, type TerrainSource } from './pixel/terrain';
+import { KEY, actPal } from './pixel/pal';
+import { Pixels } from './pixel/particles';
+import { ptext } from './pixel/font';
+import { PHOSPHOR, panelTex } from './pixel/uitex';
+import { rng } from './rng';
 
 const TAUNTS: Array<[number, string]> = [
   [1, 'Oops.'], [3, 'Again? Bold.'], [5, 'Have you tried not dying?'], [10, "I'm keeping these, by the way."],
@@ -24,15 +25,12 @@ export function tauntFor(deaths: number): string | null {
   return t;
 }
 
-const ROOM_TINT: Record<number, number> = { 1: 0xfff6ea, 2: 0xeef7ef, 3: 0xf6eef6 };
-
 const SHAKE: Record<DeathType, number> = { spike: 0.55, crusher: 1, dropper: 0.75, water: 0.3, pit: 0.15, laser: 0.6 };
 
-interface CorpseAnim { seed: number; pop: number; squash: number; rattle: number; lastStage: Stage }
-interface Pos { x: number; y: number }
-
+/** Sim units -> world pixels. */
+const P = (u: number) => u / (U / T);
+const R = Math.round;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const ux = (u: number) => u * PX;
 
 export interface ViewHooks {
   shake(amount: number): void;
@@ -40,81 +38,220 @@ export interface ViewHooks {
   flash(): void;
 }
 
+interface Board { root: Phaser.GameObjects.Container; panel: Phaser.GameObjects.Image; text: Phaser.GameObjects.BitmapText; content: string; shown: boolean }
+interface CorpseSpr { img: Phaser.GameObjects.Image; flies: Phaser.GameObjects.Image[]; squash: number; pop: number; seed: number }
+interface Pos { x: number; y: number }
+
+let viewSerial = 0;
+let dragHintShown = false;
+
 export class LevelView {
   readonly root: Phaser.GameObjects.Container;
-  private terrain: Phaser.GameObjects.Graphics;
-  private shadows: Phaser.GameObjects.Graphics;
-  private back: Phaser.GameObjects.Graphics;
-  private ents: Phaser.GameObjects.Graphics;
-  private front: Phaser.GameObjects.Graphics;
-  private glow: Phaser.GameObjects.Graphics;
-  private fxG: Phaser.GameObjects.Graphics;
-  private fxAdd: Phaser.GameObjects.Graphics;
-  private signLayer: Phaser.GameObjects.Container;
-  readonly particles = new Particles();
-  private pose: PipPose = defaultPose();
-  private poseV = { sx: 0, sy: 0 };
-  private corpseAnim = new Map<number, CorpseAnim>();
-  private prev = new Map<string, Pos>();
-  private bubbles = new Map<string, SignBubble>();
-  private taunt: SignBubble;
+  private readonly id = ++viewSerial;
+  private terrainKey: string;
+  private waterKey: string;
+  private terrain: Phaser.GameObjects.Image;
+  private back: Phaser.GameObjects.Container;
+  private ents: Phaser.GameObjects.Container;
+  private front: Phaser.GameObjects.Container;
+  private fxLayer: Phaser.GameObjects.Container;
+  private top: Phaser.GameObjects.Container;
+  readonly particles: Pixels;
+
+  private pip: Phaser.GameObjects.Image;
+  private pipShadow: Phaser.GameObjects.Image;
+  private corpses = new Map<number, CorpseSpr>();
+  private doors = new Map<string, { img: Phaser.GameObjects.Image; halo: Phaser.GameObjects.Image; smirk: Phaser.GameObjects.Image }>();
+  private droppers = new Map<string, Phaser.GameObjects.Image>();
+  private crushers = new Map<string, Phaser.GameObjects.Image>();
+  private pistons = new Map<string, Phaser.GameObjects.TileSprite>();
+  private posts: Phaser.GameObjects.Image[] = [];
+  private drips: Array<{ x: number; y: number; t: number }> = [];
+  private plates = new Map<string, { btns: Phaser.GameObjects.Image[]; pips: Phaser.GameObjects.Image[] }>();
+  private gates = new Map<string, { bars: Phaser.GameObjects.TileSprite; tip: Phaser.GameObjects.Image }>();
+  private platforms = new Map<string, Phaser.GameObjects.TileSprite>();
+  private lasers = new Map<string, { beam: Phaser.GameObjects.TileSprite; emitter: Phaser.GameObjects.Image | null; vertical: boolean }>();
+  private popups = new Map<string, { img: Phaser.GameObjects.Image; t: number }>();
+  private movers: Phaser.GameObjects.Image[][] = [];
+  private belts: Array<{ belt: Phaser.GameObjects.TileSprite; chev: Phaser.GameObjects.TileSprite; dir: number }> = [];
+  private waves: Phaser.GameObjects.TileSprite[] = [];
+  private boards = new Map<string, Board>();
+  private taunt: Board;
   private tauntT = 0;
-  private labels: Phaser.GameObjects.Text[] = [];
-  private labelLayer: Phaser.GameObjects.Text[] = [];
-  private doorGlows = new Map<string, Phaser.GameObjects.Image>();
+  private prev = new Map<string, Pos>();
   private t = 0;
-  private blinkT = 2;
-  private plateSink = new Map<string, number>();
-  private popRise = new Map<string, number>();
-  private stepTick = 0;
-  private terrainDirty = true;
-  private zoom = 1;
-  private deadPose: Pos | null = null;
-  private revealFlash = new Map<string, number>();
-  private gateBounce = new Map<string, number>();
-  private lightPool: Phaser.GameObjects.Image | null = null;
+  private terrainDirty = false;
+  private pipAnim = { land: 0, blinkT: 2, runDist: 0, pop: 1, pushT: 0, pullT: 0 };
+  private deadAt: Pos | null = null;
+  private stuckTicks = 0;
+  private humT = 0;
+  /** A one-off hint the HUD should show (consumed by the HUD). */
+  hint: string | null = null;
 
   constructor(private scene: Phaser.Scene, public world: World, private hooks: ViewHooks) {
     const add = scene.add;
     this.root = add.container(0, 0);
-    this.shadows = add.graphics();
-    this.terrain = add.graphics();
-    this.back = add.graphics();
-    this.ents = add.graphics();
-    this.front = add.graphics();
-    this.glow = add.graphics().setBlendMode(Phaser.BlendModes.ADD);
-    this.fxG = add.graphics();
-    this.fxAdd = add.graphics().setBlendMode(Phaser.BlendModes.ADD);
-    this.signLayer = add.container(0, 0);
-    for (const d of world.obj.doors) {
-      const img = add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(C.gold).setAlpha(0.55).setScale(1.1);
-      this.doorGlows.set(d.id, img);
-    }
-    const wpx = world.W * TILE, hpx = world.H * TILE;
-    const pool = add.image(wpx * 0.35, hpx * 0.1, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(wpx * 0.9, hpx * 1.4).setTint(0xffd9a8).setAlpha(0.1);
-    this.lightPool = pool;
-    this.root.add([this.terrain, pool, this.shadows, ...this.doorGlows.values(), this.back, this.ents, this.front, this.glow, this.fxG, this.fxAdd, this.signLayer]);
-    this.taunt = new SignBubble(scene, 17, 220);
-    this.signLayer.add(this.taunt);
-    for (const o of world.level.objects) {
-      if (o.type === 'label') {
-        // (x, y) is the text centre in tiles; size is a scale multiplier (1 ≈ 18px world text).
-        const k = o.size ?? 1;
-        const t = add.text(o.x * TILE, o.y * TILE, o.text, textStyle(Math.round(18 * k), C.cream, { fontStyle: '700', stroke: '#2b2433', strokeThickness: Math.max(4, Math.round(6 * k)) })).setOrigin(0.5).setResolution(2 * dpr());
-        this.labels.push(t);
-        this.labelLayer.push(t);
+    this.terrainKey = `terrain_${this.id}`;
+    this.waterKey = `water_${this.id}`;
+    bakeTerrain(scene, this.terrainKey, this.terrainSource());
+    this.terrain = add.image(0, 0, this.terrainKey).setOrigin(0);
+    this.back = add.container(0, 0);
+    this.ents = add.container(0, 0);
+    this.front = add.container(0, 0);
+    this.fxLayer = add.container(0, 0);
+    this.top = add.container(0, 0);
+    this.root.add([this.terrain, this.back, this.ents, this.front, this.fxLayer, this.top]);
+    this.particles = new Pixels(scene, this.fxLayer);
+
+    this.buildObjects();
+    this.drips = dripPoints(this.terrainSource(), 7).map((d, i) => ({ ...d, t: 0.5 + i * 0.37 }));
+    this.pipShadow = add.image(0, 0, ATLAS, 'shadow').setOrigin(0.5, 0.5);
+    this.pip = add.image(0, 0, ATLAS, 'pip_idle0').setOrigin(0.5, 1);
+    this.ents.add([this.pipShadow, this.pip]);
+
+    // Water and its animated surface sit in front of bodies.
+    const surfaces = bakeWater(scene, this.waterKey, this.terrainSource());
+    if (surfaces.length) {
+      this.front.add(add.image(0, 0, this.waterKey).setOrigin(0));
+      for (const s of surfaces) {
+        const wv = add.tileSprite(s.x, s.y - 1, s.w, 4, ATLAS, 'wave0').setOrigin(0);
+        this.waves.push(wv);
+        this.front.add(wv);
       }
     }
-    for (const l of this.labelLayer) this.root.add(l);
+
+    // Labels (credits): centred on (x, y) in tiles, `size` is a scale.
+    for (const o of world.level.objects) {
+      if (o.type !== 'label') continue;
+      const s = Math.max(1, Math.round(o.size ?? 1));
+      const t = ptext(scene, o.x * T, o.y * T, o.text, { scale: s, outline: true, color: 0xfff4e4, origin: [0.5, 0.5] });
+      this.top.add(t);
+    }
+
+    this.taunt = this.makeBoard();
     this.snapshot();
+    this.render(1, 0);
   }
 
-  setZoom(z: number): void {
-    this.zoom = z;
-    for (const l of this.labels) l.setResolution(z * dpr());
+  private terrainSource(): TerrainSource {
+    const w = this.world;
+    const extra = new Set<number>();
+    for (const d of w.obj.droppers) if (d.state !== 'gone' && d.state !== 'fall') extra.add(cellKey(d.def.x, d.def.y));
+    return { W: w.W, H: w.H, act: w.level.credits ? 0 : w.level.act ?? 1, tileAt: (cx, cy) => w.tileAt(cx, cy), extraSolid: extra };
   }
 
-  destroy(): void { this.root.destroy(true); }
+  setZoom(_z: number): void { /* pixel art renders at integer zoom; nothing to rescale */ }
+
+  destroy(): void {
+    this.root.destroy(true);
+    for (const k of [this.terrainKey, this.waterKey]) if (this.scene.textures.exists(k)) this.scene.textures.remove(k);
+    for (const img of this.droppers.values()) { const k = img.texture.key; img.destroy(); if (this.scene.textures.exists(k)) this.scene.textures.remove(k); }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Object sprites
+  // ---------------------------------------------------------------------------
+
+  private buildObjects(): void {
+    const s = this.scene, add = s.add, w = this.world, o = w.obj;
+    const src = this.terrainSource();
+    const lvl = w.level;
+
+    // Conveyor belts: one scrolling strip per run of conveyor tiles.
+    for (let cy = 0; cy < w.H; cy++) {
+      let start = -1, glyph = '';
+      for (let cx = 0; cx <= w.W; cx++) {
+        const g = cx < w.W ? lvl.tiles[cy]![cx]! : '.';
+        const conv = g === '}' || g === '{';
+        if (conv && start < 0) { start = cx; glyph = g; }
+        if ((!conv || g !== glyph) && start >= 0) {
+          const len = (cx - start) * T;
+          const belt = add.tileSprite(start * T, cy * T, len, 5, ATLAS, 'belt').setOrigin(0);
+          const chev = add.tileSprite(start * T, cy * T + 1, len, 3, ATLAS, 'chevron').setOrigin(0);
+          if (glyph === '{') chev.setFlipX(true);
+          this.belts.push({ belt, chev, dir: glyph === '}' ? 1 : -1 });
+          this.back.add([belt, chev]);
+          start = conv ? cx : -1; glyph = g;
+        }
+      }
+    }
+
+    for (const sg of o.signs) {
+      const post = add.image(sg.def.x * T + 8, sg.def.y * T + T, ATLAS, 'signpost0').setOrigin(0.5, 1);
+      this.posts.push(post);
+      this.back.add(post);
+    }
+    for (const pl of o.plates) {
+      const btns: Phaser.GameObjects.Image[] = [];
+      for (let i = 0; i < pl.def.w; i++) {
+        const x = (pl.def.x + i) * T, y = (pl.def.y + 1) * T;
+        btns.push(add.image(x + 1, y - 3, ATLAS, 'plateBtnOff').setOrigin(0, 1));
+        this.back.add(add.image(x, y, ATLAS, 'plateBase').setOrigin(0, 1));
+      }
+      this.back.add(btns);
+      const pips: Phaser.GameObjects.Image[] = [];
+      const n = Math.min(9, pl.def.need);
+      const cx = (pl.def.x + pl.def.w / 2) * T;
+      for (let i = 0; i < n; i++) pips.push(add.image(R(cx - (n * 4 - 1) / 2 + i * 4), (pl.def.y + 1) * T - 9, ATLAS, 'pipOff').setOrigin(0, 0));
+      this.top.add(pips);
+      this.plates.set(pl.id, { btns, pips });
+    }
+    for (const g of o.gates) {
+      const bars = add.tileSprite(g.def.x * T, g.def.y * T, T, 1, ATLAS, 'gateBars').setOrigin(0);
+      const tip = add.image(g.def.x * T, 0, ATLAS, 'gateTip').setOrigin(0);
+      this.back.add([bars, tip]);
+      this.gates.set(g.id, { bars, tip });
+    }
+    for (const p of o.platforms) {
+      const ts = add.tileSprite(0, 0, R(P(p.w)), 4, ATLAS, p.def.oneWay ? 'bonePlank' : 'plank').setOrigin(0);
+      this.back.add(ts);
+      this.platforms.set(p.id, ts);
+    }
+    for (const c of o.crushers) {
+      const key = `crusher_${c.def.w}x${c.def.h}`;
+      crusherTexture(s, key, c.def.w, c.def.h);
+      const rod = add.tileSprite(0, 0, 8, 8, ATLAS, 'piston').setOrigin(0).setVisible(false);
+      const img = add.image(0, 0, key).setOrigin(0);
+      this.back.add([rod, img]);
+      this.crushers.set(c.id, img);
+      this.pistons.set(c.id, rod);
+    }
+    for (const d of o.droppers) {
+      const key = `dropper_${this.id}_${d.id}`;
+      stoneTexture(s, key, src, d.def.x, d.def.y);
+      const img = add.image(0, 0, key).setOrigin(0, 0);
+      this.back.add(img);
+      this.droppers.set(d.id, img);
+    }
+    for (const l of o.lasers) {
+      const vertical = l.def.dir === 'up' || l.def.dir === 'down';
+      const beam = add.tileSprite(0, 0, 16, 16, ATLAS, vertical ? 'beam0' : 'beamh0').setOrigin(0).setVisible(false);
+      let emitter: Phaser.GameObjects.Image | null = null;
+      if (l.def.emitter) {
+        emitter = add.image(l.def.x * T + 8, l.def.y * T + 8, ATLAS, 'emitter').setOrigin(0.5);
+        emitter.setAngle({ down: 0, left: 90, up: 180, right: 270 }[l.def.dir]);
+      }
+      this.front.add(beam);
+      if (emitter) this.back.add(emitter);
+      this.lasers.set(l.id, { beam, emitter, vertical });
+    }
+    for (const p of o.popups) {
+      const img = add.image(p.def.x * T, p.def.y * T, ATLAS, 'pop0').setOrigin(0).setVisible(false);
+      this.back.add(img);
+      this.popups.set(p.id, { img, t: 0 });
+    }
+    for (const d of o.doors) {
+      const halo = add.image(0, 0, ATLAS, 'halo').setOrigin(0.5).setAlpha(0.8).setTint(KEY.j!);
+      const img = add.image(0, 0, ATLAS, d.def.runaway ? 'doorLegs_stand' : 'door').setOrigin(0.5, 1);
+      const smirk = add.image(0, 0, ATLAS, 'doorSmirk').setOrigin(0.5).setVisible(false);
+      this.back.add([halo, img, smirk]);
+      this.doors.set(d.id, { img, halo, smirk });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Interpolation
+  // ---------------------------------------------------------------------------
 
   /** Record object positions before a sim step (for interpolation). */
   snapshot(): void {
@@ -137,168 +274,150 @@ export class LevelView {
   // ---------------------------------------------------------------------------
 
   onEvents(events: readonly SimEvent[]): void {
-    this.stepTick++;
     const w = this.world;
+    const fx = this.particles;
     for (const e of events) {
       switch (e.t) {
         case 'jump':
-          this.poseV.sy += 6; this.pose.sy = 1.18; this.pose.sx = 0.84;
-          this.particles.dust(ux(e.x), ux(e.y), 5, 0);
+          fx.dust(P(e.x), P(e.y), 4);
           audio.play('jump', 1 + rng.range(-0.06, 0.06));
           break;
         case 'land': {
           const near = w.pipAlive && Math.abs(e.x - (w.pip.x + w.pip.w / 2)) < 40 && Math.abs(e.y - (w.pip.y + w.pip.h)) < 8;
           const k = Math.min(1, e.impact / 60);
+          fx.dust(P(e.x), P(e.y), near ? 3 + Math.round(4 * k) : 4);
           if (near) {
-            this.pose.sx = 1 + 0.32 * k; this.pose.sy = 1 - 0.3 * k;
-            this.particles.dust(ux(e.x), ux(e.y), 3 + Math.round(5 * k), 0);
+            this.pipAnim.land = 0.09 + k * 0.06;
             audio.play('land', 1, 0.5 + k * 0.6);
             const sup = w.supports.get(-1);
             if (sup?.kind === 'corpse') {
-              const c = w.corpseById(sup.id);
-              const a = this.corpseAnim.get(sup.id);
-              if (a) { a.squash = 0.6; if (c?.stage === 2) { a.rattle = 1; audio.play('clack'); } }
+              const cs = this.corpses.get(sup.id);
+              if (cs) cs.squash = 0.12;
+              if (w.corpseById(sup.id)?.stage === 2) audio.play('clack');
             }
-          } else {
-            this.particles.dust(ux(e.x), ux(e.y), 4, 0);
-            audio.play('land', 0.8, 0.5);
-          }
+          } else audio.play('land', 0.8, 0.5);
           break;
         }
         case 'bounce': {
-          this.pose.sy = 1.42; this.pose.sx = 0.7;
-          const a = this.corpseAnim.get(e.corpse);
-          if (a) a.squash = 1;
-          this.particles.puff(ux(e.x), ux(e.y), 6, 10, C.rotLight);
+          const cs = this.corpses.get(e.corpse);
+          if (cs) cs.squash = 0.2;
+          fx.puff(P(e.x), P(e.y), 6, 6, KEY.h!);
           audio.play('boing'); audio.play('blorp', 1.2, 0.6);
           break;
         }
         case 'push': {
           const c = w.corpseById(e.corpse);
-          if (c) { this.particles.dust(ux(c.x + (w.pip.x < c.x ? 0 : c.w)), ux(c.y + c.h), 2, 0); audio.play('push'); }
+          if (c) {
+            const away = w.pip.vx !== 0 && Math.sign(w.pip.vx) !== Math.sign(c.x + c.w / 2 - (w.pip.x + w.pip.w / 2));
+            if (away) this.pipAnim.pullT = 0.2; else this.pipAnim.pushT = 0.2;
+            fx.dust(P(c.x + (w.pip.x < c.x ? 0 : c.w)), P(c.y + c.h), 2);
+            audio.play('push');
+          }
           break;
         }
         case 'death': {
-          this.deadPose = { x: ux(w.pip.x + w.pip.w / 2), y: ux(w.pip.y + w.pip.h) };
+          this.deadAt = { x: P(w.pip.x + w.pip.w / 2), y: P(w.pip.y + w.pip.h) };
           this.hooks.flash();
           this.hooks.shake(SHAKE[e.kind]);
           this.hooks.punch(e.kind === 'pit' ? 0 : 0.07);
-          const x = ux(e.x), y = ux(e.y);
+          const x = P(e.x), y = P(e.y);
           audio.play('squeak', 1 + rng.range(-0.08, 0.08));
-          if (e.kind === 'laser') { this.particles.sparks(x, y, 22, C.laser); this.particles.sparks(x, y, 12); this.particles.puff(x, y, 10, 12, 0xffd9ec); audio.play('zap'); }
-          else if (e.kind === 'water') { this.particles.splash(x, y); audio.play('splash'); }
-          else if (e.kind === 'pit') { audio.play('whistle'); }
+          if (e.kind === 'laser') { fx.sparks(x, y, 22); fx.sparks(x, y, 10, 0xffffff); fx.puff(x, y, 8, 6, KEY.X!); audio.play('zap'); }
+          else if (e.kind === 'water') { fx.splash(x, y); audio.play('splash'); }
+          else if (e.kind === 'pit') audio.play('whistle');
           else {
-            this.particles.sparkle(x, y - 6, 7, C.white);
-            this.particles.puff(x, y, 8, 12);
+            fx.sparkle(x, y - 4, 6);
+            fx.puff(x, y, 7, 6);
             audio.play('squish', 1, e.kind === 'crusher' ? 1.2 : 0.8);
-            if (e.kind === 'crusher' || e.kind === 'dropper') this.particles.debris(x, y + 12, 8);
+            if (e.kind === 'crusher' || e.kind === 'dropper') fx.debris(x, y + 4, 8);
           }
           break;
         }
         case 'corpse': {
           const c = w.corpseById(e.id);
-          this.corpseAnim.set(e.id, { seed: rng.range(0, 100), pop: 0, squash: 0, rattle: 0, lastStage: 0 });
-          if (c) this.particles.puff(ux(c.x + c.w / 2), ux(c.y + c.h / 2), 6, 10);
-          this.deadPose = null;
+          this.deadAt = null;
+          if (c) { fx.puff(P(c.x + c.w / 2), P(c.y + c.h / 2), 6, 5); const cs = this.corpseSprite(c); cs.pop = 0.25; }
           break;
         }
         case 'age': {
           const c = w.corpseById(e.id);
-          const a = this.corpseAnim.get(e.id);
-          if (a) a.lastStage = e.stage;
           if (c) {
-            setTimeout(() => {
-              this.particles.puff(ux(c.x + c.w / 2), ux(c.y + c.h / 2), 7, 10, e.stage === 1 ? C.rotLight : C.bone);
-              if (a) a.squash = 0.8;
-            }, 150);
+            fx.puff(P(c.x + c.w / 2), P(c.y + c.h / 2), 7, 5, e.stage === 1 ? KEY.h! : KEY.o!);
+            const cs = this.corpses.get(e.id);
+            if (cs) cs.pop = 0.2;
           }
           audio.play(e.stage === 1 ? 'blorp' : 'clack');
           break;
         }
         case 'dust':
-          this.particles.bones(ux(e.x), ux(e.y), 6);
-          this.particles.puff(ux(e.x), ux(e.y), 12, 16, C.bone);
+          fx.bones(P(e.x), P(e.y), 6);
+          fx.puff(P(e.x), P(e.y), 10, 8, KEY.o!);
           audio.play('poof');
-          this.corpseAnim.delete(e.id);
+          this.dropCorpse(e.id);
           break;
         case 'vaporize':
-          this.particles.sparks(ux(e.x), ux(e.y), 20, C.laser);
-          this.particles.puff(ux(e.x), ux(e.y), 10, 14, 0xffd9ec);
+          fx.sparks(P(e.x), P(e.y), 20);
+          fx.puff(P(e.x), P(e.y), 8, 7, KEY.X!);
           audio.play('zap', 0.8);
-          this.corpseAnim.delete(e.id);
+          this.dropCorpse(e.id);
           break;
         case 'pin': audio.play('pin'); break;
         case 'flatten': {
           const c = w.corpseById(e.id);
-          if (c) this.particles.puff(ux(c.x + c.w / 2), ux(c.y + c.h), 8, 14);
+          if (c) fx.puff(P(c.x + c.w / 2), P(c.y + c.h), 8, 7);
           audio.play('squish', 0.8);
           break;
         }
-        case 'splash': this.particles.splash(ux(e.x), ux(e.y), 10); audio.play('splash', 1.1, 0.7); break;
+        case 'splash': fx.splash(P(e.x), P(e.y), 10); audio.play('splash', 1.1, 0.7); break;
         case 'respawn':
-          this.pose = { ...defaultPose(), pop: 0, facing: 1 };
-          this.scene.tweens.add({ targets: this.pose, pop: 1, duration: 350, ease: 'Back.easeOut', easeParams: [2.5] });
-          this.particles.puff(ux(e.x), ux(e.y) - 14, 12, 14);
-          this.particles.sparkle(ux(e.x), ux(e.y) - 18, 5, C.gold);
+          this.pipAnim.pop = 0;
+          fx.puff(P(e.x), P(e.y) - 6, 10, 7);
+          fx.sparkle(P(e.x), P(e.y) - 8, 4, KEY.z!);
           audio.play('pop');
           this.showTaunt();
           this.terrainDirty = true;
           break;
         case 'restart':
-          this.corpseAnim.clear();
-          this.particles.puff(ux(w.pip.x + w.pip.w / 2), ux(w.pip.y + w.pip.h) - 14, 12, 14);
-          this.pose = { ...defaultPose(), pop: 0 };
-          this.scene.tweens.add({ targets: this.pose, pop: 1, duration: 300, ease: 'Back.easeOut' });
+          for (const id of [...this.corpses.keys()]) this.dropCorpse(id);
+          fx.puff(P(w.pip.x + w.pip.w / 2), P(w.pip.y + w.pip.h) - 6, 10, 7);
+          this.pipAnim.pop = 0;
           this.terrainDirty = true;
           audio.play('poof');
           break;
-        case 'plate':
-          audio.play('click', e.down ? 1 : 0.8);
-          this.plateSink.set(e.id, e.down ? -3 : 3);
-          break;
-        case 'gate':
-          audio.play('gate', e.open ? 1 : 0.85);
-          this.gateBounce.set(e.id, 1);
-          break;
+        case 'plate': audio.play('click', e.down ? 1 : 0.8); break;
+        case 'gate': audio.play('gate', e.open ? 1 : 0.85); break;
         case 'popSpike': {
-          this.popRise.set(e.id, 0);
-          const p = w.obj.get<{ def: { x: number; y: number } }>(e.id);
-          if (p) this.particles.dust(p.def.x * TILE + 20, p.def.y * TILE + TILE, 6);
+          const p = this.popups.get(e.id);
+          if (p) { p.t = 0; fx.dust(p.img.x + 8, p.img.y + T, 6); }
           audio.play('shing');
           break;
         }
-        case 'dropperShake': audio.play('rumble'); this.terrainDirty = true; break;
-        case 'dropperFall': audio.play('whistle', 0.7, 0.6); break;
+        case 'dropperShake': audio.play('rumble'); break;
+        case 'dropperFall': audio.play('whistle', 0.7, 0.6); this.terrainDirty = true; break;
         case 'dropperBreak':
-          this.particles.debris(ux(e.x), ux(e.y), 12);
-          this.particles.dust(ux(e.x), ux(e.y), 8);
+          fx.debris(P(e.x), P(e.y), 12);
+          fx.dust(P(e.x), P(e.y), 8);
           this.hooks.shake(0.35);
           audio.play('slam', 1.3, 0.6);
           break;
         case 'crusherSlam': {
-          const c = w.obj.get<{ x: number; y: number; w: number; h: number }>(e.id);
-          if (c) { this.particles.debris(ux(c.x + c.w / 2), ux(c.y + c.h), 10); this.particles.dust(ux(c.x + c.w / 2), ux(c.y + c.h), 10); }
+          const c = w.obj.get<RtCrusher>(e.id);
+          if (c) { fx.debris(P(c.x + c.w / 2), P(c.y + c.h), 10); fx.dust(P(c.x + c.w / 2), P(c.y + c.h), 10); }
           this.hooks.shake(0.6);
           audio.play('slam');
           break;
         }
         case 'laserZap': break;
-        case 'laserReveal': {
-          this.revealFlash.set(e.id, 1);
-          this.hooks.shake(0.3);
-          audio.play('zap', 1.2);
-          break;
-        }
+        case 'laserReveal': this.hooks.shake(0.3); this.hooks.flash(); audio.play('zap', 1.2); break;
         case 'tiles': this.terrainDirty = true; break;
         case 'tilesDrop':
-          for (const c of e.cells) this.particles.debris(c.x * TILE + 20, c.y * TILE + 20, 5);
+          for (const c of e.cells) fx.debris(c.x * T + 8, c.y * T + 8, 5);
           this.hooks.shake(0.4);
           audio.play('slam', 0.8, 0.6);
           break;
         case 'sign': {
-          const b = this.bubbles.get(e.id);
-          if (b) b.wobble();
+          const b = this.boards.get(e.id);
+          if (b) { b.content = ''; }
           audio.play('tock');
           break;
         }
@@ -306,12 +425,11 @@ export class LevelView {
         case 'doorScurry': audio.play('scurry'); break;
         case 'shake': this.hooks.shake(Math.min(1, e.strength)); break;
         case 'sfx': if (e.name === 'jingle') audio.jingle(); else audio.play(e.name); break;
-        case 'win': {
-          this.particles.confetti(ux(e.x), ux(e.y) - 10, 46);
-          this.particles.sparkle(ux(e.x), ux(e.y), 14);
+        case 'win':
+          fx.confetti(P(e.x), P(e.y) - 4, 46);
+          fx.sparkle(P(e.x), P(e.y), 12, KEY.z!);
           audio.jingle();
           break;
-        }
         case 'step': break;
       }
     }
@@ -320,9 +438,108 @@ export class LevelView {
   private showTaunt(): void {
     const s = tauntFor(this.world.deathCount);
     if (!s) return;
-    this.taunt.setContent(s, this.zoom);
+    this.setBoard(this.taunt, s);
     this.tauntT = 2.6;
-    this.taunt.show();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boards (sign speech)
+  // ---------------------------------------------------------------------------
+
+  private makeBoard(): Board {
+    const s = this.scene;
+    const panel = s.add.image(0, 0, ATLAS, 'p1').setOrigin(0.5, 1);
+    const text = s.add.bitmapText(0, 0, 'pf', '', 1).setOrigin(0.5, 0.5).setCenterAlign().setTint(PHOSPHOR).setMaxWidth(118);
+    const root = s.add.container(0, 0, [panel, text]).setVisible(false).setScale(0);
+    this.top.add(root);
+    return { root, panel, text, content: '', shown: false };
+  }
+
+  private setBoard(b: Board, content: string): void {
+    if (b.content === content) return;
+    b.content = content;
+    b.text.setText(content);
+    const bw = Math.max(18, b.text.width + 12), bh = b.text.height + 8;
+    b.panel.setTexture(panelTex(this.scene, R(bw) | 1, R(bh), 'crt', true));
+    b.text.setPosition(0, -R(bh / 2) - 4 + 1);
+  }
+
+  private showBoard(b: Board, show: boolean): void {
+    if (b.shown === show) return;
+    b.shown = show;
+    this.scene.tweens.killTweensOf(b.root);
+    if (show) {
+      b.root.setVisible(true);
+      this.scene.tweens.add({ targets: b.root, scale: 1, duration: 260, ease: 'Back.easeOut', easeParams: [2.4] });
+      audio.play('tock', 1, 0.6);
+    } else {
+      this.scene.tweens.add({ targets: b.root, scale: 0, duration: 120, ease: 'Quad.easeIn', onComplete: () => b.root.setVisible(false) });
+    }
+  }
+
+  private placeBoard(b: Board, x: number, y: number): void {
+    const half = R((b.panel.width || 20) / 2);
+    const cx = Math.max(half + 1, Math.min(this.world.W * T - half - 1, x));
+    b.root.setPosition(R(cx), R(Math.max(b.panel.height + 1, y)));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Corpses
+  // ---------------------------------------------------------------------------
+
+  private corpseSprite(c: Corpse): CorpseSpr {
+    let cs = this.corpses.get(c.id);
+    if (!cs) {
+      const img = this.scene.add.image(0, 0, ATLAS, corpseFrame(c.stage, 'body')).setOrigin(0.5, 1);
+      cs = { img, flies: [], squash: 0, pop: 0, seed: rng.range(0, 100) };
+      this.ents.addAt(img, 0);
+      this.corpses.set(c.id, cs);
+    }
+    return cs;
+  }
+
+  private dropCorpse(id: number): void {
+    const cs = this.corpses.get(id);
+    if (!cs) return;
+    cs.img.destroy();
+    for (const f of cs.flies) f.destroy();
+    this.corpses.delete(id);
+  }
+
+  private drawCorpses(alpha: number, dt: number): void {
+    const w = this.world;
+    const alive = new Set<number>();
+    for (const c of w.corpses) {
+      alive.add(c.id);
+      const cs = this.corpseSprite(c);
+      const look: Look = c.pin?.kind === 'floor' ? 'floor' : c.pin?.kind === 'wall' ? 'wall' : c.shape === 'slab' ? 'slab' : 'body';
+      cs.img.setFrame(corpseFrame(c.stage, look));
+      const x = P(lerp(c.px, c.x, alpha) + c.w / 2);
+      const top = P(lerp(c.py, c.y, alpha));
+      const bot = P(lerp(c.py, c.y, alpha) + c.h);
+      let jx = 0;
+      if (c.shiver > 0) jx = (Math.floor(this.t * 60) % 2) * 2 - 1;
+      cs.squash = Math.max(0, cs.squash - dt);
+      cs.pop = Math.max(0, cs.pop - dt);
+      const pop = cs.pop > 0 ? 1 + Math.sin((cs.pop / 0.25) * Math.PI) * 0.25 : 1;
+      if (look === 'wall') {
+        const leftWall = w.tileAt(c.pin!.cx, c.pin!.cy) === '>';
+        cs.img.setOrigin(0.5, 0).setFlipX(!leftWall).setPosition(R(x) + jx, R(top) - 1);
+      } else {
+        cs.img.setOrigin(0.5, 1).setFlipX(false).setPosition(R(x) + jx, R(bot) + (cs.squash > 0 ? 1 : 0));
+      }
+      cs.img.setScale(pop, cs.squash > 0 ? 0.8 : pop);
+      // Flies orbit Rot bodies.
+      const want = c.stage === 1 ? 2 : 0;
+      while (cs.flies.length < want) { const f = this.scene.add.image(0, 0, ATLAS, 'fly0'); this.ents.add(f); cs.flies.push(f); }
+      while (cs.flies.length > want) cs.flies.pop()!.destroy();
+      cs.flies.forEach((f, i) => {
+        const a = this.t * (2.2 + i * 0.7) + cs.seed + i * 2.6;
+        f.setPosition(R(x + Math.cos(a) * (6 + i * 2)), R(top - 4 - Math.abs(Math.sin(a * 1.3)) * 4));
+        f.setFrame(Math.floor(this.t * 20 + i) % 2 ? 'fly0' : 'fly1');
+      });
+    }
+    for (const id of [...this.corpses.keys()]) if (!alive.has(id)) this.dropCorpse(id);
   }
 
   // ---------------------------------------------------------------------------
@@ -331,501 +548,230 @@ export class LevelView {
 
   render(alpha: number, dt: number): void {
     this.t += dt;
-    const w = this.world;
+    const w = this.world, o = w.obj;
     if (this.terrainDirty) {
-      const extra: ExtraSolids = new Set();
-      for (const d of w.obj.droppers) if (d.state === 'idle') extra.add(cellKey(Math.floor(d.x / U), Math.floor(d.homeY / U)));
-      drawTerrain(this.terrain, w, extra, ROOM_TINT[w.level.act ?? 1] ?? C.paper);
+      bakeTerrain(this.scene, this.terrainKey, this.terrainSource());
       this.terrainDirty = false;
     }
     this.particles.update(dt);
-    this.updatePose(dt);
-    if (this.lightPool) this.lightPool.setAlpha(0.1 + Math.sin(this.t * 0.6) * 0.025);
 
-    const sh = this.shadows, b = this.back, e = this.ents, f = this.front, gl = this.glow;
-    sh.clear(); b.clear(); e.clear(); f.clear(); gl.clear();
+    // Belts and water.
+    const beltPx = R(this.t * 30) % 16;
+    for (const b of this.belts) b.chev.tilePositionX = -b.dir * beltPx;
+    const wf = `wave${Math.floor(this.t * 6) % 4}`;
+    for (const wv of this.waves) { wv.setFrame(wf); wv.tilePositionX = R(this.t * 6); }
 
-    this.drawConveyors(b);
-    this.drawObjectsBack(b, gl, alpha, dt);
-    this.drawCorpses(e, sh, alpha, dt);
-    this.drawPlayer(e, sh, alpha);
-    this.drawWater(f);
-    this.drawLasers(f, gl);
-    this.drawSigns(dt);
-    this.fxG.clear(); this.fxAdd.clear();
-    this.particles.draw(this.fxG, this.fxAdd);
-    // ambient motes near the door
-    if (Math.random() < dt * 4) for (const d of w.obj.doors) this.particles.motes(ux(d.x + d.w / 2) + rng.range(-14, 14), ux(d.y + d.h) - rng.range(0, 30), C.gold);
-  }
-
-  private updatePose(dt: number): void {
-    const w = this.world, p = this.pose, pip = w.pip;
-    // spring squash/stretch back to 1 with a little overshoot
-    const k = 260, damp = Math.exp(-dt * 16);
-    this.poseV.sx = (this.poseV.sx + (1 - p.sx) * k * dt) * damp;
-    this.poseV.sy = (this.poseV.sy + (1 - p.sy) * k * dt) * damp;
-    p.sx += this.poseV.sx * dt; p.sy += this.poseV.sy * dt;
-    if (!w.pipAlive) return;
-    const vx = pip.vx / 28;
-    if (pip.vx !== 0) p.facing = pip.vx > 0 ? 1 : -1;
-    else p.facing = pip.facing;
-    p.runAmt = lerp(p.runAmt, pip.grounded && Math.abs(vx) > 0.2 ? Math.abs(vx) : 0, Math.min(1, dt * 14));
-    p.run += dt * 22 * Math.abs(vx);
-    const leanTarget = pip.grounded ? vx * 0.14 : vx * 0.08 + (pip.vy / 72) * 0.05 * p.facing;
-    p.lean = lerp(p.lean, leanTarget, Math.min(1, dt * 12));
-    p.lag = lerp(p.lag, Phaser.Math.Clamp(-vx * 0.8 * p.facing + pip.vy / 60, -1, 1), Math.min(1, dt * 8));
-    p.lookX = lerp(p.lookX, Math.abs(vx) > 0.1 ? 1 : 0.35, Math.min(1, dt * 10));
-    p.lookY = lerp(p.lookY, Phaser.Math.Clamp(pip.vy / 50, -1, 1), Math.min(1, dt * 10));
-    if (!pip.grounded) { const st = Phaser.Math.Clamp(-pip.vy / 66, -0.4, 1); p.sy = lerp(p.sy, 1 + st * 0.12, dt * 10); p.sx = lerp(p.sx, 1 - st * 0.08, dt * 10); }
-    this.blinkT -= dt;
-    if (this.blinkT < 0) { p.blink = 1; if (this.blinkT < -0.12) { p.blink = 0; this.blinkT = 2 + Math.random() * 3; } }
-    else p.blink = 0;
-    p.hurt = false;
-  }
-
-  private groundBelow(xpx: number, ypx: number): number | null {
-    const w = this.world;
-    const cx = Math.floor(xpx / TILE);
-    for (let cy = Math.floor(ypx / TILE); cy < Math.min(w.H, Math.floor(ypx / TILE) + 8); cy++) {
-      const g = w.tileAt(cx, cy);
-      if (g === '#' || g === '=' || g === 'X' || g === '}' || g === '{') return Math.max(ypx, cy * TILE);
-      if (g === '~') return cy * TILE;
-    }
-    return null;
-  }
-
-  private shadow(sh: Phaser.GameObjects.Graphics, x: number, y: number, wpx: number): void {
-    const gy = this.groundBelow(x, y - 1);
-    if (gy === null) return;
-    const d = Math.max(0, gy - y);
-    const k = Math.max(0, 1 - d / 160);
-    if (k <= 0) return;
-    sh.fillStyle(C.outline, 0.18 * k);
-    sh.fillEllipse(x, gy - 1, wpx * (0.6 + 0.4 * k), 6 * (0.6 + 0.4 * k));
-  }
-
-  private drawPlayer(e: Phaser.GameObjects.Graphics, sh: Phaser.GameObjects.Graphics, a: number): void {
-    const w = this.world, pip = w.pip;
-    if (w.pipAlive) {
-      const x = ux(lerp(pip.px, pip.x, a) + pip.w / 2), y = ux(lerp(pip.py, pip.y, a) + pip.h);
-      this.shadow(sh, x, y, 26);
-      drawPip(e, x, y + 0.5, this.pose);
-    } else if (w.hitstop > 0 && this.deadPose) {
-      const p = { ...this.pose, hurt: true, sx: 1.15, sy: 0.88, pop: 1 };
-      drawPip(e, this.deadPose.x + rng.range(-1.5, 1.5), this.deadPose.y, p);
-    }
-  }
-
-  private corpseLook(c: Corpse): CorpseLook {
-    if (c.pin?.kind === 'floor') return 'floor';
-    if (c.pin?.kind === 'wall') return 'wall';
-    if (c.shape === 'slab') return 'slab';
-    if (c.floating) return 'raft';
-    return 'body';
-  }
-
-  private drawCorpses(e: Phaser.GameObjects.Graphics, sh: Phaser.GameObjects.Graphics, alpha: number, dt: number): void {
-    const w = this.world;
-    for (const c of w.corpses) {
-      let a = this.corpseAnim.get(c.id);
-      if (!a) { a = { seed: (c.id * 37) % 100, pop: 1, squash: 0, rattle: 0, lastStage: c.stage }; this.corpseAnim.set(c.id, a); }
-      a.pop = Math.min(1, a.pop + dt * 5);
-      a.squash = Math.max(0, a.squash - dt * 3.5);
-      a.rattle = Math.max(0, a.rattle - dt * 3);
-      let x = ux(lerp(c.px, c.x, alpha)), y = ux(lerp(c.py, c.y, alpha));
-      const wpx = ux(c.w), hpx = ux(c.h);
-      if (c.shiver > 0) x += Math.sin(this.t * 90) * 2.2;
-      if (a.rattle > 0) x += Math.sin(this.t * 70) * 1.5 * a.rattle;
-      if (c.floating) y += Math.sin(this.t * 3 + a.seed) * 1.3;
-      const look = this.corpseLook(c);
-      if (look === 'body' || look === 'raft' || look === 'slab') this.shadow(sh, x + wpx / 2, y + hpx, wpx * 0.9);
-      // squash on landings / bounces, pop on appearance
-      const sq = Math.sin(a.squash * Math.PI) * 0.35 * a.squash;
-      const pop = Phaser.Math.Easing.Back.Out(a.pop);
-      const sxk = (1 + sq) * pop, syk = (1 - sq) * pop;
-      const bx = x + wpx / 2, by = y + hpx;
-      const flip = c.pin?.kind === 'wall' ? w.tileAt(c.pin.cx, c.pin.cy) === '<' : (c.id % 2 === 1);
-      e.save();
-      e.translateCanvas(bx, by);
-      e.scaleCanvas(sxk, syk);
-      drawCorpse(e, -wpx / 2, -hpx, wpx, hpx, c.stage, look, this.t, a.seed, flip);
-      e.restore();
-    }
-  }
-
-  private drawConveyors(b: Phaser.GameObjects.Graphics): void {
-    const w = this.world;
-    for (let cy = 0; cy < w.H; cy++)
-      for (let cx = 0; cx < w.W; cx++) {
-        const g = w.tileAt(cx, cy);
-        if (g !== '}' && g !== '{') continue;
-        const x = cx * TILE, y = cy * TILE, dir = g === '}' ? 1 : -1;
-        b.fillStyle(C.outline, 1);
-        b.fillRect(x, y - 2, TILE, 12);
-        b.fillStyle(C.metalDark, 1);
-        b.fillRect(x, y + 1, TILE, 7);
-        const off = ((this.t * 48 * dir) % 10 + 10) % 10;
-        b.fillStyle(C.gold, 0.9);
-        for (let i = -1; i < 5; i++) {
-          const sx = x + i * 10 + off;
-          if (sx < x - 2 || sx > x + TILE - 4) continue;
-          b.fillTriangle(sx, y + 2, sx, y + 7, sx + 4 * dir, y + 4.5);
-        }
-        b.fillStyle(C.metal, 1);
-        b.fillCircle(x + 6, y + 18, 3); b.fillCircle(x + 34, y + 18, 3);
-      }
-  }
-
-  private drawObjectsBack(b: Phaser.GameObjects.Graphics, gl: Phaser.GameObjects.Graphics, a: number, dt: number): void {
-    const w = this.world, o = w.obj;
-
-    // sign posts
-    for (const s of o.signs) {
-      const x = s.def.x * TILE + 20, y = s.def.y * TILE + TILE;
-      b.fillStyle(C.outline, 1);
-      b.fillRoundedRect(x - 4.5, y - 22, 9, 22, 3);
-      b.fillStyle(C.woodDark, 1);
-      b.fillRoundedRect(x - 2, y - 20, 4, 20, 2);
-      b.fillStyle(C.outline, 1);
-      b.fillRoundedRect(x - 14, y - 34, 28, 18, 6);
-      b.fillStyle(C.wood, 1);
-      b.fillRoundedRect(x - 11.5, y - 31.5, 23, 13, 4);
-      b.fillStyle(C.woodLight, 1);
-      b.fillRoundedRect(x - 9, y - 30, 18, 3, 1.5);
-      b.fillStyle(C.outline, 1);
-      b.fillCircle(x - 5, y - 23.5, 1.6); b.fillCircle(x, y - 23.5, 1.6); b.fillCircle(x + 5, y - 23.5, 1.6);
-    }
-
-    // plates
-    for (const p of o.plates) {
-      const sinkT = this.plateSink.get(p.id) ?? 0;
-      const sink = p.pressed ? 4 : 0;
-      const x = ux(p.x), y = ux(p.y + p.h), wpx = ux(p.w);
-      const bump = sinkT !== 0 ? Math.sin(this.t * 30) * 0 : 0;
-      b.fillStyle(C.outline, 1);
-      b.fillRoundedRect(x + 1, y - 5, wpx - 2, 7, 3);
-      b.fillRoundedRect(x + 4, y - 10 + sink + bump, wpx - 8, 9, 4);
-      b.fillStyle(p.pressed ? C.plateOn : C.hazard, 1);
-      b.fillRoundedRect(x + 6.5, y - 7.5 + sink, wpx - 13, 5, 2.5);
-      b.fillStyle(0xffffff, 0.55);
-      b.fillRoundedRect(x + 9, y - 7 + sink, wpx - 22, 1.6, 1);
-      // required weight pips + live weight
-      const need = p.def.need, have = Math.min(p.weight, need);
-      const r = 4, gap = 11, cx0 = x + wpx / 2 - ((need - 1) * gap) / 2, py = y - 20;
-      b.fillStyle(C.outline, 0.9);
-      b.fillRoundedRect(cx0 - r - 5, py - r - 4, (need - 1) * gap + r * 2 + 10, r * 2 + 8, r + 4);
-      for (let i = 0; i < need; i++) {
-        b.fillStyle(i < have ? (p.pressed ? C.plateOn : C.gold) : C.solidTop, 1);
-        b.fillCircle(cx0 + i * gap, py, r);
-        if (i < have) { b.fillStyle(0xffffff, 0.6); b.fillCircle(cx0 + i * gap - 1.2, py - 1.2, 1.3); }
-      }
-      if (p.weight > need) {
-        b.fillStyle(C.plateOn, 1);
-        b.fillCircle(cx0 + need * gap + 2, py, 2.4);
-      }
-      if (sinkT !== 0) this.plateSink.set(p.id, sinkT * Math.exp(-dt * 10));
-    }
-
-    // gates
-    for (const g of o.gates) {
-      const box = gateBox(g);
-      const bounce = this.gateBounce.get(g.id) ?? 0;
-      const over = Math.sin(bounce * Math.PI * 3) * bounce * 4;
-      const x = ux(g.x), y = ux(g.y), full = ux(g.h), hpx = Math.max(0, ux(box.h) + (g.open > 0 && g.open < 1 ? 0 : over));
-      // frame caps
-      b.fillStyle(C.outline, 1);
-      b.fillRoundedRect(x - 7, y - 3, 34, 9, 4);
-      b.fillRoundedRect(x - 7, y + full - 5, 34, 7, 3);
-      b.fillStyle(C.metal, 1);
-      b.fillRoundedRect(x - 4.5, y - 0.5, 29, 4.5, 2);
-      b.fillRoundedRect(x - 4.5, y + full - 3, 29, 3, 1.5);
-      if (hpx > 1) {
-        for (let i = 0; i < 3; i++) {
-          const bx = x + 1 + i * 8.5;
-          b.fillStyle(C.outline, 1);
-          b.fillRoundedRect(bx - 1.5, y, 7, hpx + 1.5, 3);
-          b.fillStyle(C.metalDark, 1);
-          b.fillRoundedRect(bx, y, 4, hpx, 2);
-          b.fillStyle(C.metal, 1);
-          b.fillRect(bx + 0.8, y, 1.4, hpx - 2);
-        }
-        b.fillStyle(C.outline, 1);
-        b.fillRoundedRect(x - 3, y + hpx - 7, 26, 8, 3);
-        b.fillStyle(C.hazard, 1);
-        b.fillRoundedRect(x - 1, y + hpx - 5, 22, 4, 2);
-      }
-      if (bounce > 0) this.gateBounce.set(g.id, Math.max(0, bounce - dt * 1.6));
-    }
-
-    // platforms
-    for (const p of o.platforms) {
-      const pos = this.ip(p.id, p.x, p.y, a);
-      const x = ux(pos.x), y = ux(pos.y), wpx = ux(p.w), hpx = ux(p.h);
-      b.fillStyle(C.outline, 1);
-      b.fillRoundedRect(x - 2.5, y - 2.5, wpx + 5, (p.def.oneWay ? 6 : hpx) + 5, 6);
-      if (p.def.oneWay) {
-        // Drop-through: a thin bone plank with a dashed underside.
-        b.fillStyle(C.bone, 1);
-        b.fillRoundedRect(x, y, wpx, 6, 3);
-        b.fillStyle(C.boneShade, 1);
-        b.fillRect(x + 3, y + 4, wpx - 6, 2);
-        b.fillStyle(C.outline, 1);
-        for (const kx of [x + 1, x + wpx - 1]) { b.fillCircle(kx, y + 1.5, 4.2); b.fillCircle(kx, y + 4.5, 4.2); }
-        b.fillStyle(C.bone, 1);
-        for (const kx of [x + 1, x + wpx - 1]) { b.fillCircle(kx, y + 1.5, 2.6); b.fillCircle(kx, y + 4.5, 2.6); }
-        b.fillStyle(C.outline, 0.35);
-        for (let i = 4; i < wpx - 6; i += 9) b.fillRect(x + i, y + hpx - 1, 5, 2);
-      } else {
-        b.fillStyle(C.wood, 1);
-        b.fillRoundedRect(x, y, wpx, hpx, 4);
-        b.fillStyle(C.woodLight, 1);
-        b.fillRoundedRect(x + 3, y + 1.5, wpx - 6, 2.5, 1.2);
-        b.fillStyle(C.woodDark, 1);
-        b.fillCircle(x + 6, y + hpx / 2 + 1, 1.8); b.fillCircle(x + wpx - 6, y + hpx / 2 + 1, 1.8);
-      }
-      // little wheels when moving
-      if (p.active && !p.done) {
-        b.fillStyle(C.gold, 0.9);
-        b.fillCircle(x + wpx / 2, y + hpx + 4 + Math.sin(this.t * 20) * 0.6, 2.4);
-      }
-    }
-
-    // tile movers
-    o.movers.forEach((m, i) => {
-      const pos = this.ip(`mover${i}`, m.ox, m.oy, a);
-      const set = new Set(m.cells.filter((c) => c.g === '#' || c.g === '=' || c.g === 'X').map((c) => cellKey(c.cx, c.cy)));
-      for (const c of m.cells) {
-        if (!set.has(cellKey(c.cx, c.cy))) continue;
-        const S = (dx: number, dy: number) => set.has(cellKey(c.cx + dx, c.cy + dy));
-        drawBlock(b, c.cx * TILE + ux(pos.x), c.cy * TILE + ux(pos.y), S(0, -1), S(0, 1), S(1, 0), S(-1, 0));
-      }
-    });
-
-    // droppers (idle ones are part of the terrain)
+    // Droppers & crushers & platforms & movers.
     for (const d of o.droppers) {
-      if (d.state === 'idle' || d.state === 'gone') continue;
-      const pos = this.ip(d.id, d.x, d.y, a);
-      let x = ux(pos.x), y = ux(pos.y);
-      if (d.state === 'shake' || d.state === 'armed') { x += Math.sin(this.t * 80) * 1.8; y += Math.cos(this.t * 60) * 0.8; if (Math.random() < 0.5) this.particles.trickle(x + 20, y + TILE); }
-      drawBlock(b, x, y, false, false, false, false, 7);
-      if (d.state === 'fall') {
-        b.fillStyle(C.white, 0.35);
-        b.fillRoundedRect(x + 6, y - 18, 3, 14, 1.5); b.fillRoundedRect(x + 31, y - 22, 3, 18, 1.5);
-      }
+      const img = this.droppers.get(d.id);
+      if (!img) continue;
+      img.setVisible(d.state !== 'gone');
+      const p = this.ip(d.id, d.x, d.y, alpha);
+      const shaking = d.state === 'shake' || d.state === 'armed';
+      const jx = shaking ? (Math.floor(this.t * 40) % 2) * 2 - 1 : 0;
+      img.setPosition(R(P(p.x)) + jx, R(P(p.y)) - 3);
+      if (shaking && rng.next() < dt * 20) this.particles.spawn(P(d.x) + rng.range(2, 14), P(d.y + d.h), { frame: 'p1', tint: 0xcbbca8, vy: 30, g: 80, life: 0.4 });
     }
-
-    // crushers
     for (const c of o.crushers) {
-      const pos = this.ip(c.id, c.x, c.y, a);
-      const x = ux(pos.x), y = ux(pos.y), wpx = ux(c.w), hpx = ux(c.h), home = ux(c.homeY);
-      if (y > home + 1) {
-        b.fillStyle(C.outline, 1);
-        b.fillRoundedRect(x + wpx / 2 - 7, home - 2, 14, y - home + 6, 4);
-        b.fillStyle(C.metal, 1);
-        b.fillRoundedRect(x + wpx / 2 - 4, home, 8, y - home + 3, 3);
-        b.fillStyle(C.white, 0.35);
-        b.fillRect(x + wpx / 2 - 2.5, home, 1.6, y - home);
-      }
-      b.fillStyle(C.outline, 1);
-      b.fillRoundedRect(x - 3, y - 3, wpx + 6, hpx + 6, 9);
-      b.fillStyle(C.metalDark, 1);
-      b.fillRoundedRect(x, y, wpx, hpx, 7);
-      b.fillStyle(C.metal, 1);
-      b.fillRoundedRect(x + 3, y + 3, wpx - 6, 6, 3);
-      // hazard stripes along the bottom
-      const sy = y + hpx - 11;
-      b.fillStyle(C.gold, 1);
-      b.fillRect(x + 3, sy, wpx - 6, 8);
-      b.fillStyle(C.outline, 1);
-      for (let sx = x + 3; sx < x + wpx - 10; sx += 12) { b.fillTriangle(sx, sy + 8, sx + 5, sy, sx + 9, sy); b.fillTriangle(sx, sy + 8, sx + 9, sy, sx + 4, sy + 8); }
-      b.fillStyle(C.outline, 1);
-      b.fillCircle(x + 8, y + 16, 2.2); b.fillCircle(x + wpx - 8, y + 16, 2.2);
-      if (c.state === 'slam' || c.state === 'hold') { b.fillStyle(C.hazard, 0.9); b.fillCircle(x + wpx / 2, y + 16, 3.5); }
+      const img = this.crushers.get(c.id);
+      if (!img) continue;
+      const p = this.ip(c.id, c.x, c.y, alpha);
+      img.setPosition(R(P(p.x)), R(P(p.y)));
+      const rod = this.pistons.get(c.id);
+      const len = R(P(p.y - c.homeY));
+      if (rod) rod.setVisible(len > 0).setPosition(R(P(p.x + c.w / 2)) - 4, R(P(c.homeY))).setSize(8, Math.max(1, len + 1));
+    }
+    for (const p of o.platforms) {
+      const ts = this.platforms.get(p.id);
+      if (!ts) continue;
+      const q = this.ip(p.id, p.x, p.y, alpha);
+      ts.setPosition(R(P(q.x)), R(P(q.y)));
+    }
+    this.drawMovers(alpha);
+
+    // Plates and gates.
+    for (const pl of o.plates as RtPlate[]) {
+      const v = this.plates.get(pl.id);
+      if (!v) continue;
+      for (const b of v.btns) { b.setFrame(pl.pressed ? 'plateBtnOn' : 'plateBtnOff'); b.y = (pl.def.y + 1) * T - (pl.pressed ? 2 : 3); }
+      v.pips.forEach((pp, i) => pp.setFrame(i < pl.weight ? 'pipOn' : 'pipOff'));
+    }
+    for (const g of o.gates) {
+      const v = this.gates.get(g.id);
+      if (!v) continue;
+      const box = gateBox(g);
+      const h = R(P(box.h));
+      v.bars.setVisible(h > 0).setSize(T, Math.max(1, h));
+      v.bars.tilePositionY = -h;
+      v.tip.setVisible(h > 0).setPosition(g.def.x * T, g.def.y * T + h - 1);
     }
 
-    // laser emitters
-    for (const l of o.lasers) {
-      if (!l.emitterBox) continue;
-      const x = ux(l.emitterBox.x), y = ux(l.emitterBox.y);
-      b.fillStyle(C.outline, 1);
-      b.fillRoundedRect(x + 3, y + 3, 34, 34, 9);
-      b.fillStyle(C.solidTop, 1);
-      b.fillRoundedRect(x + 6, y + 6, 28, 28, 7);
-      const dir = l.def.dir;
-      const lx = x + 20 + (dir === 'left' ? -10 : dir === 'right' ? 10 : 0), ly = y + 20 + (dir === 'up' ? -10 : dir === 'down' ? 10 : 0);
-      b.fillStyle(C.outline, 1); b.fillCircle(lx, ly, 7);
-      b.fillStyle(l.active ? C.laser : 0x7a4a68, 1); b.fillCircle(lx, ly, 5);
-      b.fillStyle(0xffffff, 0.8); b.fillCircle(lx - 1.5, ly - 1.5, 1.6);
-      if (l.active) { gl.fillStyle(C.laser, 0.35); gl.fillCircle(lx, ly, 11 + Math.sin(this.t * 20) * 1.5); }
-    }
-
-    // pop-up spikes
+    // Pop-ups.
     for (const p of o.popups) {
-      if (!p.up) continue;
-      let r = this.popRise.get(p.id) ?? 1;
-      r = Math.min(1, r + dt * 9);
-      this.popRise.set(p.id, r);
-      drawSpikes(b, p.def.x * TILE, p.def.y * TILE, '^', Phaser.Math.Easing.Back.Out(r));
+      const v = this.popups.get(p.id);
+      if (!v) continue;
+      v.img.setVisible(p.up);
+      if (p.up) { v.t += dt; v.img.setFrame(`pop${Math.min(3, Math.floor(v.t * 40))}`); }
+      else v.t = 0;
     }
 
-    // doors
-    for (const d of o.doors) this.drawDoor(b, d, a);
+    // Lasers.
+    const bf = Math.floor(this.t * 24) % 3;
+    this.humT -= dt;
+    for (const l of o.lasers) {
+      // Security beams hum quietly when they switch on, or while Pip is close to a live one.
+      if (l.active && this.humT <= 0 && l.beam.w > 0 && !(l.def.hidden && !w.revealed.has(l.id))) {
+        const p = w.pip, near = w.pipAlive && Math.abs(p.x + p.w / 2 - (l.beam.x + l.beam.w / 2)) < l.beam.w / 2 + 2 * U && Math.abs(p.y + p.h / 2 - (l.beam.y + l.beam.h / 2)) < l.beam.h / 2 + 2 * U;
+        if (near || !l.wasActive) { audio.play('hum', 1, near ? 0.35 : 0.25); this.humT = 1.1; }
+      }
+      const v = this.lasers.get(l.id);
+      if (!v) continue;
+      const bx = l.beam;
+      const hiddenNow = !!l.def.hidden && !w.revealed.has(l.id);
+      if (bx.w <= 0 || hiddenNow) { v.beam.setVisible(false); continue; }
+      const x = R(P(bx.x)), y = R(P(bx.y)), bw = R(P(bx.w)), bh = R(P(bx.h));
+      if (v.vertical) v.beam.setPosition(x - 6, y).setSize(16, bh);
+      else v.beam.setPosition(x, y - 6).setSize(bw, 16);
+      v.beam.setVisible(true);
+      v.beam.setFrame(l.active ? (v.vertical ? `beam${bf}` : `beamh${bf}`) : v.vertical ? 'beamOffV' : 'beamOffH');
+      if (v.vertical) v.beam.tilePositionY = l.active ? R(this.t * 40) % 16 : 0;
+      else v.beam.tilePositionX = l.active ? R(this.t * 40) % 16 : 0;
+      if (v.emitter) v.emitter.setTint(l.active ? 0xffffff : 0xb7aec6);
+      if (l.active && rng.next() < dt * 6) this.particles.spawn(x + rng.range(0, Math.max(1, bw)), y + rng.range(0, Math.max(1, bh)), { frame: 'p1', tint: KEY.X!, vy: rng.range(-12, 12), vx: rng.range(-12, 12), life: 0.3 });
+    }
+
+    // Doors.
+    for (const d of o.doors as RtDoor[]) {
+      const v = this.doors.get(d.id);
+      if (!v) continue;
+      const p = this.ip(d.id, d.x, d.y, alpha);
+      const cx = R(P(p.x + d.w / 2)), by = R(P(p.y + d.h));
+      let frame = 'door', jx = 0;
+      if (d.def.runaway) {
+        if (d.state === 'run') frame = Math.floor(this.t * 14) % 2 ? 'doorLegs_runA' : 'doorLegs_runB';
+        else if (d.state === 'hop') frame = 'doorLegs_hop';
+        else frame = 'doorLegs_stand';
+        if (d.state === 'tremble') jx = (Math.floor(this.t * 30) % 2) * 2 - 1;
+        v.img.setFlipX(d.facing === 1);
+      }
+      v.img.setFrame(frame).setPosition(cx + jx, by);
+      v.smirk.setVisible(d.state === 'hop').setPosition(cx, by - 9);
+      const pulse = 0.55 + Math.sin(this.t * 3) * 0.2;
+      v.halo.setPosition(cx, by - 8).setAlpha(pulse);
+      if (rng.next() < dt * 3) this.particles.motes(cx + rng.range(-6, 6), by - rng.range(0, 14), KEY.j!);
+    }
+
+    this.drawCorpses(alpha, dt);
+    this.drawPip(alpha, dt);
+    this.drawSigns(dt);
   }
 
-  private drawDoor(b: Phaser.GameObjects.Graphics, d: RtDoor, a: number): void {
-    const pos = this.ip(d.id, d.x, d.y, a);
-    let x = ux(pos.x), y = ux(pos.y);
-    const wpx = ux(d.w), hpx = ux(d.h);
-    const runaway = !!d.def.runaway;
-    if (d.state === 'tremble') x += Math.sin(this.t * 70) * 1.6;
-    const glow = this.doorGlows.get(d.id);
-    if (glow) { glow.setPosition(x + wpx / 2, y + hpx * 0.55); glow.setScale(0.9 + Math.sin(this.t * 2.5) * 0.06); }
-    const legLift = runaway ? 7 : 0;
-    const bodyY = y - legLift;
-    if (runaway) {
-      const ph = d.state === 'run' || d.state === 'hop' ? this.t * 26 : 0;
-      for (const [lx, s] of [[x + 9, 1], [x + wpx - 9, -1]] as const) {
-        const off = Math.sin(ph) * 3 * s;
-        b.lineStyle(5, C.outline, 1); b.lineBetween(lx, bodyY + hpx - 2, lx + off, y + hpx - 1);
-        b.lineStyle(2.4, C.woodDark, 1); b.lineBetween(lx, bodyY + hpx - 2, lx + off, y + hpx - 1);
-        b.fillStyle(C.outline, 1); b.fillEllipse(lx + off + 2 * d.facing, y + hpx - 1, 9, 5);
+  private drawMovers(alpha: number): void {
+    const o = this.world.obj;
+    o.movers.forEach((m, i) => {
+      let imgs = this.movers[i];
+      if (!imgs) {
+        imgs = m.cells.filter((c) => c.g === '#' || c.g === '=' || c.g === 'X').map((c) => {
+          const key = `mv_${this.id}_${c.cx}_${c.cy}`;
+          if (!this.scene.textures.exists(key)) stoneTexture(this.scene, key, this.terrainSource(), c.cx, c.cy, true);
+          const img = this.scene.add.image(0, 0, key).setOrigin(0);
+          img.setData('cx', c.cx).setData('cy', c.cy);
+          this.back.add(img);
+          return img;
+        });
+        this.movers[i] = imgs;
       }
+      const p = this.ip(`mover${i}`, m.ox, m.oy, alpha);
+      for (const img of imgs) img.setPosition(R(img.getData('cx') * T + P(p.x)), R(img.getData('cy') * T + P(p.y)) - 3);
+    });
+    // Movers vanish on respawn (the sim rebuilds its object state).
+    for (let i = o.movers.length; i < this.movers.length; i++) { for (const img of this.movers[i]!) img.destroy(); }
+    this.movers.length = Math.min(this.movers.length, o.movers.length);
+  }
+
+  private drawPip(alpha: number, dt: number): void {
+    const w = this.world, p = w.pip, a = this.pipAnim;
+    a.land = Math.max(0, a.land - dt);
+    a.pushT = Math.max(0, a.pushT - dt);
+    a.pullT = Math.max(0, a.pullT - dt);
+    a.pop = Math.min(1, a.pop + dt / 0.3);
+    if (!w.pipAlive) {
+      this.pipShadow.setVisible(false);
+      if (this.deadAt && w.hitstop > 0) {
+        this.pip.setVisible(true).setFrame('pip_dead').setPosition(R(this.deadAt.x), R(this.deadAt.y)).setScale(1, 1);
+      } else this.pip.setVisible(false);
+      return;
+    }
+    const x = P(lerp(p.px, p.x, alpha) + p.w / 2);
+    const y = P(lerp(p.py, p.y, alpha) + p.h);
+    let frame = 'pip_idle0';
+    const moving = Math.abs(p.vx) > 2;
+    if (!p.grounded) frame = p.vy < 0 ? 'pip_jump' : 'pip_fall';
+    else if (a.land > 0) frame = 'pip_land';
+    else if (a.pullT > 0) frame = 'pip_pull';
+    else if (a.pushT > 0) frame = 'pip_push';
+    else if (moving) {
+      a.runDist += Math.abs(p.vx) * dt * 60;
+      frame = `pip_run${Math.floor(a.runDist / 70) % 4}`;
     } else {
-      b.fillStyle(C.outline, 0.25);
-      b.fillEllipse(x + wpx / 2, y + hpx + 1, wpx + 10, 6);
+      a.blinkT -= dt;
+      const bob = Math.floor(this.t * 2) % 2;
+      if (a.blinkT < 0) { frame = bob ? 'pip_blink1' : 'pip_blink'; if (a.blinkT < -0.12) a.blinkT = 2 + rng.range(0, 2.5); }
+      else frame = bob ? 'pip_idle1' : 'pip_idle0';
     }
-    // frame + door
-    b.fillStyle(C.outline, 1);
-    b.fillRoundedRect(x - 3, bodyY - 3, wpx + 6, hpx + 3, { tl: wpx / 2 + 3, tr: wpx / 2 + 3, bl: 3, br: 3 });
-    b.fillStyle(C.woodDark, 1);
-    b.fillRoundedRect(x, bodyY, wpx, hpx - 1, { tl: wpx / 2, tr: wpx / 2, bl: 2, br: 2 });
-    b.fillStyle(C.wood, 1);
-    b.fillRoundedRect(x + 4, bodyY + 4, wpx - 8, hpx - 6, { tl: wpx / 2 - 4, tr: wpx / 2 - 4, bl: 1, br: 1 });
-    b.fillStyle(C.woodLight, 1);
-    b.fillRoundedRect(x + 8, bodyY + 9, wpx / 2 - 10, hpx - 16, { tl: 6, tr: 2, bl: 2, br: 2 });
-    b.fillStyle(C.woodDark, 0.5);
-    b.fillRect(x + wpx / 2 - 0.8, bodyY + 6, 1.6, hpx - 8);
-    b.fillStyle(C.outline, 1); b.fillCircle(x + wpx - 9, bodyY + hpx * 0.58, 3.4);
-    b.fillStyle(C.gold, 1); b.fillCircle(x + wpx - 9, bodyY + hpx * 0.58, 2.2);
-    if (runaway) {
-      // a face: eyes, and a smirk when hopping / worry when trembling
-      const ex = x + wpx / 2 + d.facing * -1, ey = bodyY + 14;
-      b.fillStyle(C.white, 1); b.fillEllipse(ex - 5, ey, 7, 8); b.fillEllipse(ex + 5, ey, 7, 8);
-      b.fillStyle(C.outline, 1); b.fillCircle(ex - 5 - d.facing * 1.4, ey + 0.5, 2); b.fillCircle(ex + 5 - d.facing * 1.4, ey + 0.5, 2);
-      b.lineStyle(1.8, C.outline, 1);
-      b.beginPath();
-      if (d.state === 'hop') { b.moveTo(ex - 5, ey + 8); b.lineTo(ex + 1, ey + 10); b.lineTo(ex + 6, ey + 6); }
-      else if (d.state === 'tremble') { b.moveTo(ex - 5, ey + 10); b.lineTo(ex - 2, ey + 8); b.lineTo(ex + 1, ey + 10); b.lineTo(ex + 4, ey + 8); }
-      else { b.moveTo(ex - 3, ey + 8); b.lineTo(ex + 3, ey + 8); }
-      b.strokePath();
-      if (d.state === 'tremble') { b.fillStyle(C.water, 0.9); b.fillEllipse(x + wpx - 4, bodyY + 6 + ((this.t * 40) % 10), 3, 5); }
-    }
+    // Pushing into something that won't budge: suggest dragging (once).
+    this.checkStuckPush();
+    const s = a.pop < 1 ? Phaser.Math.Easing.Back.Out(a.pop, 2.5) : 1;
+    this.pip.setVisible(true).setFrame(frame).setFlipX(p.facing < 0).setPosition(R(x), R(y)).setScale(s);
+    this.pipShadow.setVisible(p.grounded).setPosition(R(x), R(y));
   }
 
-  private drawWater(f: Phaser.GameObjects.Graphics): void {
-    const w = this.world;
-    for (let cx = 0; cx < w.W; cx++) {
-      for (let cy = 0; cy < w.H; cy++) {
-        if (w.tileAt(cx, cy) !== '~') continue;
-        const x = cx * TILE, y = cy * TILE;
-        const surface = w.tileAt(cx, cy - 1) !== '~';
-        if (surface) {
-          const pts: Phaser.Types.Math.Vector2Like[] = [];
-          for (let i = 0; i <= 8; i++) {
-            const px = x + (i / 8) * TILE;
-            pts.push({ x: px, y: y + 5 + Math.sin(this.t * 3 + px * 0.09) * 2 + Math.sin(this.t * 1.7 + px * 0.05) * 1.2 });
-          }
-          pts.push({ x: x + TILE, y: y + TILE }, { x, y: y + TILE });
-          f.fillStyle(C.water, 0.82);
-          f.fillPoints(pts, true);
-          f.lineStyle(3, C.waterHi, 0.95);
-          f.beginPath();
-          f.moveTo(pts[0]!.x, pts[0]!.y);
-          for (let i = 1; i <= 8; i++) f.lineTo(pts[i]!.x, pts[i]!.y);
-          f.strokePath();
-        } else {
-          f.fillStyle(C.waterDeep, 0.85);
-          f.fillRect(x, y, TILE, TILE);
-        }
-        // caustics + current streaks
-        f.fillStyle(C.waterHi, 0.22);
-        const ph = this.t * (w.current.speed ? w.current.dir * w.current.speed * 0.6 : 0.3);
-        for (let i = 0; i < 2; i++) {
-          const sx = x + (((ph * 30 + i * 21 + cy * 13) % TILE) + TILE) % TILE;
-          f.fillRoundedRect(sx - 6, y + 14 + i * 12 + Math.sin(this.t * 2 + i + cx) * 2, 12, 2.2, 1);
-        }
-      }
-    }
-  }
-
-  private drawLasers(f: Phaser.GameObjects.Graphics, gl: Phaser.GameObjects.Graphics): void {
-    const w = this.world;
-    for (const l of w.obj.lasers) {
-      const bm = l.beam;
-      if (bm.w <= 0 || bm.h <= 0) continue;
-      const hidden = l.def.hidden && !w.revealed.has(l.id);
-      if (hidden) continue;
-      const x = ux(bm.x), y = ux(bm.y), wpx = ux(bm.w), hpx = ux(bm.h);
-      const vertical = hpx > wpx;
-      const cxp = x + wpx / 2, cyp = y + hpx / 2;
-      const flash = this.revealFlash.get(l.id) ?? 0;
-      if (flash > 0) this.revealFlash.set(l.id, Math.max(0, flash - 0.02));
-      if (l.active) {
-        const fl = 1 + Math.sin(this.t * 37) * 0.12 + Math.sin(this.t * 13) * 0.08 + flash * 1.5;
-        const glowW = 22 * fl, mid = 9, core = 3.5;
-        gl.fillStyle(C.laser, 0.28);
-        if (vertical) gl.fillRoundedRect(cxp - glowW / 2, y, glowW, hpx, glowW / 2); else gl.fillRoundedRect(x, cyp - glowW / 2, wpx, glowW, glowW / 2);
-        gl.fillStyle(C.laser, 0.35);
-        if (vertical) gl.fillRect(cxp - glowW / 4, y, glowW / 2, hpx); else gl.fillRect(x, cyp - glowW / 4, wpx, glowW / 2);
-        f.fillStyle(C.laser, 0.95);
-        if (vertical) f.fillRect(cxp - mid / 2, y, mid, hpx); else f.fillRect(x, cyp - mid / 2, wpx, mid);
-        f.fillStyle(C.laserCore, 1);
-        if (vertical) f.fillRect(cxp - core / 2, y, core, hpx); else f.fillRect(x, cyp - core / 2, wpx, core);
-        // travelling sparkles along the beam
-        const len = vertical ? hpx : wpx;
-        for (let i = 0; i < Math.max(2, len / 24); i++) {
-          const p = ((this.t * 160 + i * 47) % len);
-          gl.fillStyle(0xffffff, 0.6);
-          if (vertical) gl.fillCircle(cxp + Math.sin(i + this.t * 9) * 2, y + p, 1.6); else gl.fillCircle(x + p, cyp + Math.sin(i + this.t * 9) * 2, 1.6);
-        }
-        if (Math.random() < 0.15) this.particles.sparks(vertical ? cxp : x + wpx, vertical ? y + hpx : cyp, 1, C.laser);
-      } else {
-        // switched off: a faint dashed guide so the hazard stays readable
-        f.fillStyle(C.laser, 0.28);
-        const len = vertical ? hpx : wpx;
-        for (let p = 0; p < len; p += 12) { if (vertical) f.fillRect(cxp - 1, y + p, 2, 6); else f.fillRect(x + p, cyp - 1, 6, 2); }
-      }
-    }
+  private checkStuckPush(): void {
+    if (dragHintShown) return;
+    const w = this.world, p = w.pip;
+    if (!p.grounded || p.vx !== 0) { this.stuckTicks = Math.max(0, this.stuckTicks - 1); return; }
+    const dir = p.facing;
+    const touching = w.corpses.find((c) => !c.pin && c.stage !== 2 && Math.abs(c.y + c.h - (p.y + p.h)) < 4 &&
+      (dir > 0 ? Math.abs(c.x - (p.x + p.w)) <= 1 : Math.abs(c.x + c.w - p.x) <= 1));
+    if (!touching) { this.stuckTicks = 0; return; }
+    const beyond = { x: dir > 0 ? touching.x + touching.w + 1 : touching.x - 2, y: touching.y + 2, w: 1, h: Math.max(1, touching.h - 4) };
+    if (w.isFree(beyond, touching.id)) { this.stuckTicks = 0; return; }
+    if (++this.stuckTicks > 45) { dragHintShown = true; this.hint = '↓ + walk away: drag a body'; }
   }
 
   private drawSigns(dt: number): void {
-    const w = this.world;
-    const px = w.pip.x + w.pip.w / 2, py = w.pip.y + w.pip.h / 2;
-    // Only the nearest sign in range talks, so neighbouring boards never overlap.
-    let nearest: string | null = null, best = Infinity;
+    const w = this.world, p = w.pip;
+    const px = p.x + p.w / 2, py = p.y + p.h / 2;
+    let best: { id: string; d: number } | null = null;
     if (w.pipAlive) for (const s of w.obj.signs) {
-      const d = Math.hypot(px - (s.def.x * U + U / 2), py - (s.def.y * U + U / 2));
-      if (d <= SIGN_RANGE && d < best && signText(w, s)) { best = d; nearest = s.id; }
+      const sx = s.def.x * U + U / 2, sy = s.def.y * U + U / 2;
+      const d = Math.hypot(px - sx, py - sy);
+      if (d < SIGN_RANGE && (!best || d < best.d)) best = { id: s.id, d };
     }
     for (const s of w.obj.signs) {
-      let bub = this.bubbles.get(s.id);
-      if (!bub) { bub = new SignBubble(this.scene, 17, 250); this.bubbles.set(s.id, bub); this.signLayer.add(bub); }
-      const near = s.id === nearest;
-      const text = signText(w, s);
-      bub.setContent(text, this.zoom);
-      const half = (bub.list[1] as Phaser.GameObjects.Text).width / 2 + 20 / this.zoom;
-      bub.setPosition(Phaser.Math.Clamp(s.def.x * TILE + 20, half + 6, w.W * TILE - half - 6), 0);
-      bub.y = s.def.y * TILE + TILE - 40 - (bub.list[1] as Phaser.GameObjects.Text).height / 2 - 14 / this.zoom;
-      if (near && text) { if (!bub.shown) audio.play('tock', 1 + rng.range(-0.05, 0.05)); bub.show(); }
-      else bub.hide();
+      let b = this.boards.get(s.id);
+      if (!b) { b = this.makeBoard(); this.boards.set(s.id, b); }
+      const on = best?.id === s.id;
+      if (on || b.shown) {
+        this.setBoard(b, signText(w, s));
+        this.placeBoard(b, s.def.x * T + 8, s.def.y * T + 4);
+      }
+      this.showBoard(b, on && b.content.length > 0);
     }
-    if (this.tauntT > 0) {
-      this.tauntT -= dt;
-      const sp = w.spawnPoint();
-      const bw = (this.taunt.list[1] as Phaser.GameObjects.Text).width / 2 + 22 / this.zoom;
-      const tx = Phaser.Math.Clamp(ux(sp.x + 90), TILE + bw, w.W * TILE - TILE - bw);
-      this.taunt.setPosition(tx, ux(sp.y) - 78 - (this.taunt.list[1] as Phaser.GameObjects.Text).height / 2);
-      if (this.tauntT <= 0) this.taunt.hide();
+    // The spawn taunt (and the softlock nudge, which stays up while it applies).
+    const stuck = !!(w as unknown as { suggestRestart?: boolean }).suggestRestart;
+    if (stuck && w.pipAlive) { this.setBoard(this.taunt, 'Stuck? R clears the bodies.'); this.tauntT = Math.max(this.tauntT, 0.5); }
+    this.tauntT -= dt;
+    const sp = w.spawnPoint();
+    const near = best && this.boards.get(best.id)?.shown;
+    this.placeBoard(this.taunt, P(sp.x + w.pip.w / 2), P(sp.y) - 6);
+    this.showBoard(this.taunt, this.tauntT > 0 && !(near && !stuck));
+    // Floating spores, dripping coolant and flickering monitors.
+    if (rng.next() < dt * 2.5) this.particles.motes(rng.range(T, (w.W - 1) * T), rng.range(T, (w.H - 1) * T), actPal(w.level.act).mossLight);
+    for (const d of this.drips) {
+      d.t -= dt;
+      if (d.t <= 0) { d.t = 1.6 + rng.range(0, 2.2); this.particles.spawn(d.x, d.y + 1, { frame: 'drop', vy: 10, g: 260, life: 0.7, fade: true }); }
     }
+    for (let i = 0; i < this.posts.length; i++) this.posts[i]!.setFrame(Math.sin(this.t * 13 + i * 5) > 0.93 || Math.sin(this.t * 2.3 + i) > 0.97 ? 'signpost1' : 'signpost0');
   }
 }

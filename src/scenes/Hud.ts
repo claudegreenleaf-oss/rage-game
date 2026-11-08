@@ -1,96 +1,95 @@
-// HUD overlay: corpse slots with stage icons, bouncing death counter, level name, mute toggle.
+// HUD: corpse slots with stage icons, a bouncing death counter, the level name, an R-restart hint
+// (which pulses when the player has probably softlocked), one-off tips, and the mute toggle.
 import Phaser from 'phaser';
 import type { Game } from './Game';
-import { C } from '../render/palette';
-import { drawCorpseIcon } from '../render/draw-corpse';
-import { textStyle, dpr } from '../render/ui';
+import { ATLAS } from '../render/pixel/sprites';
+import { ptext } from '../render/pixel/font';
+import { panelTex } from '../render/pixel/uitex';
+import { KEY } from '../render/pixel/pal';
+import { UI } from '../render/ui';
 import { audio } from '../audio/sfx';
-import type { Stage } from '../sim/types';
 
-const W = 1280;
-
-export function drawSkull(g: Phaser.GameObjects.Graphics, x: number, y: number, r: number): void {
-  g.fillStyle(C.outline, 1);
-  g.fillCircle(x, y, r + 2.5);
-  g.fillRoundedRect(x - r * 0.6 - 2.5, y + r * 0.3 - 2.5, r * 1.2 + 5, r * 0.8 + 5, 3);
-  g.fillStyle(C.bone, 1);
-  g.fillCircle(x, y, r);
-  g.fillRoundedRect(x - r * 0.6, y + r * 0.3, r * 1.2, r * 0.8, 2);
-  g.fillStyle(C.outline, 1);
-  g.fillCircle(x - r * 0.38, y, r * 0.3);
-  g.fillCircle(x + r * 0.38, y, r * 0.3);
-  g.fillRect(x - 1, y + r * 0.55, 2, r * 0.5);
-}
-
-export function drawSpeaker(g: Phaser.GameObjects.Graphics, x: number, y: number, muted: boolean): void {
-  g.fillStyle(C.outline, 1);
-  g.fillRoundedRect(x - 22, y - 22, 44, 44, 13);
-  g.fillStyle(C.paper, 1);
-  g.fillRoundedRect(x - 19, y - 19, 38, 38, 11);
-  g.fillStyle(C.outline, 1);
-  g.fillRect(x - 10, y - 4, 6, 8);
-  g.fillTriangle(x - 6, y - 4, x + 3, y - 11, x + 3, y + 11);
-  g.fillTriangle(x - 6, y + 4, x + 3, y - 11, x + 3, y + 11);
-  g.lineStyle(2.6, C.outline, 1);
-  if (muted) { g.lineBetween(x + 6, y - 6, x + 13, y + 6); g.lineBetween(x + 13, y - 6, x + 6, y + 6); }
-  else { g.beginPath(); g.arc(x + 4, y, 6, -0.9, 0.9); g.strokePath(); g.beginPath(); g.arc(x + 4, y, 11, -0.9, 0.9); g.strokePath(); }
-}
+const W = 1280, H = 720;
 
 export class Hud extends Phaser.Scene {
   private game_!: Game;
-  private panel!: Phaser.GameObjects.Graphics;
-  private icons!: Phaser.GameObjects.Graphics;
-  private slotPop = [0, 0, 0];
-  private lastSlots: string[] = ['', '', ''];
-  private deathText!: Phaser.GameObjects.Text;
-  private deathGroup!: Phaser.GameObjects.Container;
+  private slots: Array<{ bg: Phaser.GameObjects.Image; icon: Phaser.GameObjects.Image; key: string; pop: number }> = [];
+  private deathText!: Phaser.GameObjects.BitmapText;
+  private skull!: Phaser.GameObjects.Image;
   private lastDeaths = 0;
-  private speaker!: Phaser.GameObjects.Graphics;
+  private speaker!: Phaser.GameObjects.Image;
+  private restart!: Phaser.GameObjects.Container;
+  private restartBig!: Phaser.GameObjects.Container;
+  private tip: Phaser.GameObjects.Container | null = null;
   private t = 0;
   private unsub: (() => void) | null = null;
 
   constructor() { super('Hud'); }
 
-  init(data: { game: Game }): void { this.game_ = data.game; this.lastDeaths = 0; this.lastSlots = ['', '', '']; }
+  init(data: { game: Game }): void { this.game_ = data.game; this.lastDeaths = 0; this.slots = []; this.tip = null; }
 
   create(): void {
     const g = this.game_;
-    this.panel = this.add.graphics();
-    this.icons = this.add.graphics();
-    // death counter
-    const skull = this.add.graphics();
-    drawSkull(skull, 0, -2, 11);
-    this.deathText = this.add.text(20, 0, '0', textStyle(28, C.ink, { fontStyle: '700' })).setOrigin(0, 0.5).setResolution(dpr());
-    this.deathGroup = this.add.container(232, 42, [skull, this.deathText]);
-
-    // level name
-    const lvl = g.data_.level;
-    const title = this.add.text(W / 2, 54, lvl.name, textStyle(40, C.ink, { fontStyle: '700', stroke: '#fbf3e4', strokeThickness: 10 })).setOrigin(0.5).setResolution(dpr());
-    const sub = this.add.text(W / 2, 92, g.data_.mode === 'playtest' ? 'PLAYTEST · Esc to edit' : g.data_.mode === 'shared' ? 'SHARED LEVEL' : g.data_.mode === 'credits' ? '' : `Level ${lvl.id.replace('L', '')}`, textStyle(18, C.ink, { stroke: '#fbf3e4', strokeThickness: 6 })).setOrigin(0.5).setResolution(dpr());
-    title.setScale(0.6).setAlpha(0);
-    this.tweens.add({ targets: title, scale: 1, alpha: 1, duration: 420, ease: 'Back.easeOut', delay: 250 });
-    this.tweens.add({ targets: sub, alpha: { from: 0, to: 1 }, duration: 300, delay: 450 });
-    this.tweens.add({ targets: [title, sub], alpha: 0, y: '-=14', duration: 600, delay: 2300, ease: 'Sine.easeIn' });
-
-    // controls hint
-    const hint = this.add.text(W - 24, 700, '←→ move · Space jump · ↓ drop · R restart · Esc pause', textStyle(15, C.ink)).setOrigin(1, 1).setAlpha(0.6).setResolution(dpr());
-    this.tweens.add({ targets: hint, alpha: 0, duration: 800, delay: 6000 });
-    if (g.data_.mode === 'playtest') {
-      const tag = this.add.text(W - 92, 42, 'PLAYTEST', textStyle(18, C.paper, { fontStyle: '700', backgroundColor: '#2b2433', padding: { x: 10, y: 4 } })).setOrigin(1, 0.5).setResolution(dpr());
-      void tag;
+    // Corpse slots + death counter panel.
+    this.add.image(12, 10, panelTex(this, 92, 22, 'paper')).setOrigin(0).setScale(UI);
+    for (let i = 0; i < 3; i++) {
+      const x = 12 + (4 + i * 20) * UI, y = 10 + 3 * UI;
+      const bg = this.add.image(x, y, panelTex(this, 18, 15, 'slotEmpty')).setOrigin(0).setScale(UI);
+      const icon = this.add.image(x + 9 * UI, y + 8 * UI, ATLAS, 'icon0').setScale(UI).setVisible(false);
+      this.slots.push({ bg, icon, key: '', pop: 0 });
     }
+    this.add.image(12 + 66 * UI, 10 + 4 * UI, ATLAS, 'p1').setDisplaySize(UI, 14 * UI).setTint(0xcdbba6).setOrigin(0);
+    this.skull = this.add.image(12 + 73 * UI, 10 + 11 * UI, ATLAS, 'skull').setScale(UI);
+    this.deathText = ptext(this, 12 + 81 * UI, 10 + 11 * UI, '0', { scale: UI, origin: [0, 0.5] });
 
-    this.speaker = this.add.graphics();
-    const hit = this.add.zone(W - 44, 42, 48, 48).setInteractive({ useHandCursor: true });
-    hit.on('pointerdown', () => { void audio.unlock(); audio.toggleMute(); });
+    // Level name banner.
+    const lvl = g.data_.level;
+    const sub = g.data_.mode === 'playtest' ? 'PLAYTEST · Esc to edit' : g.data_.mode === 'shared' ? 'SHARED LEVEL' : g.data_.mode === 'credits' ? '' : `LEVEL ${lvl.id.replace('L', '')}`;
+    const title = ptext(this, W / 2, 46, lvl.name, { scale: 5, bold: true, color: 0xfff4e4, origin: [0.5, 0.5] });
+    const subT = ptext(this, W / 2, 92, sub, { scale: 3, outline: true, color: KEY.z!, origin: [0.5, 0.5] });
+    title.setAlpha(0); subT.setAlpha(0);
+    this.tweens.add({ targets: title, alpha: 1, y: { from: 30, to: 46 }, duration: 380, ease: 'Back.easeOut', delay: 250 });
+    this.tweens.add({ targets: subT, alpha: 1, duration: 300, delay: 450 });
+    this.tweens.add({ targets: [title, subT], alpha: 0, duration: 500, delay: 2300, ease: 'Stepped', easeParams: [4] });
+
+    // Always-visible restart hint (bottom-left) and the big softlock prompt.
+    this.restart = this.add.container(16, H - 16, [
+      this.add.image(0, 0, ATLAS, 'keyR').setOrigin(0, 1).setScale(UI),
+      ptext(this, 13 * UI, -5 * UI, 'restart', { scale: 2, color: 0xfff4e4, outline: true, origin: [0, 0.5] }),
+    ]).setAlpha(0.8);
+    const bigW = 118;
+    this.restartBig = this.add.container(W / 2, H - 70, [
+      this.add.image(0, 0, panelTex(this, bigW, 17, 'dark')).setScale(UI),
+      this.add.image(-bigW * UI / 2 + 8 * UI, -UI, ATLAS, 'keyR').setScale(UI),
+      ptext(this, -bigW * UI / 2 + 16 * UI, -UI, 'restart (clears bodies)', { scale: 3, color: 0xfff4e4, origin: [0, 0.5] }),
+    ]).setVisible(false);
+
+    // Controls hint, fades after a few seconds.
+    const hint = ptext(this, W - 16, H - 16, '←→ move · space jump · ↓ drop / drag · esc pause', { scale: 2, outline: true, color: 0xfff4e4, origin: [1, 1] });
+    this.tweens.add({ targets: hint, alpha: 0, duration: 600, delay: 6000, ease: 'Stepped', easeParams: [4] });
+    if (g.data_.mode === 'playtest') this.add.image(W - 88, 34, panelTex(this, 40, 11, 'dark')).setScale(UI).setOrigin(1, 0.5);
+    if (g.data_.mode === 'playtest') ptext(this, W - 88 - 20 * UI, 34 - UI, 'PLAYTEST', { scale: 2, color: KEY.z!, origin: [0.5, 0.5] });
+
+    this.speaker = this.add.image(W - 40, 34, ATLAS, 'speaker').setScale(UI).setInteractive({ useHandCursor: true });
+    this.speaker.on('pointerdown', () => { void audio.unlock(); audio.toggleMute(); });
     this.unsub = audio.onMute(() => this.drawSpeaker());
     this.events.once('shutdown', () => this.unsub?.());
     this.drawSpeaker();
   }
 
-  private drawSpeaker(): void {
-    this.speaker.clear();
-    drawSpeaker(this.speaker, W - 44, 42, audio.muted);
+  private drawSpeaker(): void { this.speaker.setFrame(audio.muted ? 'speakerOff' : 'speaker'); }
+
+  private showTip(text: string): void {
+    this.tip?.destroy();
+    const w = Math.round(text.length * 5.2) + 14;
+    const c = this.add.container(W / 2, 150, [
+      this.add.image(0, 0, panelTex(this, w, 16, 'tape', true)).setScale(UI),
+      ptext(this, 0, -2 * UI, text, { scale: 3, origin: [0.5, 0.5] }),
+    ]).setScale(0);
+    this.tweens.add({ targets: c, scale: 1, duration: 280, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: c, scale: 0, duration: 160, delay: 4200, ease: 'Quad.easeIn', onComplete: () => c.destroy() });
+    audio.play('tock');
+    this.tip = c;
   }
 
   override update(_t: number, dms: number): void {
@@ -98,49 +97,33 @@ export class Hud extends Phaser.Scene {
     this.t += dt;
     const w = this.game_.world;
     if (!w) return;
-    // panel
-    const p = this.panel;
-    p.clear();
-    p.fillStyle(0x000000, 0.12);
-    p.fillRoundedRect(20, 20, 300, 56, 20);
-    p.fillStyle(C.outline, 1);
-    p.fillRoundedRect(14, 12, 300, 58, 20);
-    p.fillStyle(C.paper, 1);
-    p.fillRoundedRect(17, 15, 294, 52, 17);
     const corpses = [...w.corpses].sort((a, b) => a.born - b.born);
-    const ic = this.icons;
-    ic.clear();
     for (let i = 0; i < 3; i++) {
       const c = corpses[i];
+      const s = this.slots[i]!;
       const key = c ? `${c.id}:${c.stage}` : '';
-      if (key !== this.lastSlots[i]) { this.slotPop[i] = 1; this.lastSlots[i] = key; }
-      this.slotPop[i] = Math.max(0, this.slotPop[i]! - dt * 3);
-      const x = 52 + i * 62, y = 41;
-      const pop = this.slotPop[i]!;
-      const s = 1 + Math.sin(pop * Math.PI) * 0.25;
-      p.fillStyle(c ? 0xf3e2cc : 0xeadccb, 1);
-      p.fillRoundedRect(x - 26 * s, y - 20 * s, 52 * s, 40 * s, 11);
-      if (!c) {
-        p.lineStyle(2, C.outline, 0.18);
-        p.strokeRoundedRect(x - 22, y - 16, 44, 32, 9);
-        continue;
+      if (key !== s.key) {
+        s.key = key; s.pop = 0.25;
+        s.bg.setTexture(panelTex(this, 18, 15, c ? 'slot' : 'slotEmpty'));
+        s.icon.setVisible(!!c);
+        if (c) s.icon.setFrame(`icon${c.stage}`);
       }
-      ic.save();
-      ic.translateCanvas(x, y + 2);
-      ic.scaleCanvas(s, s);
-      drawCorpseIcon(ic, 0, 0, c.stage as Stage, this.t);
-      ic.restore();
+      s.pop = Math.max(0, s.pop - dt);
+      s.icon.setY(10 + 3 * UI + 8 * UI - (s.pop > 0.12 ? UI : 0));
     }
-    // separator
-    p.fillStyle(C.outline, 0.15);
-    p.fillRect(212, 24, 2, 34);
-
     if (w.deathCount !== this.lastDeaths) {
       this.lastDeaths = w.deathCount;
       this.deathText.setText(String(w.deathCount));
-      this.tweens.killTweensOf(this.deathGroup);
-      this.deathGroup.setScale(1.6).setAngle(-12);
-      this.tweens.add({ targets: this.deathGroup, scale: 1, angle: 0, duration: 520, ease: 'Elastic.easeOut', easeParams: [1.1, 0.4] });
+      this.tweens.killTweensOf([this.deathText, this.skull]);
+      this.deathText.setScale(1.67); this.skull.setScale(UI + 1).setAngle(-15);
+      this.tweens.add({ targets: this.deathText, scale: 1, duration: 360, ease: 'Bounce.easeOut' });
+      this.tweens.add({ targets: this.skull, scale: UI, angle: 0, duration: 360, ease: 'Bounce.easeOut' });
     }
+    const stuck = !!(w as unknown as { suggestRestart?: boolean }).suggestRestart;
+    this.restartBig.setVisible(stuck);
+    if (stuck) this.restartBig.y = H - 70 - (Math.floor(this.t * 3) % 2) * UI;
+    this.restart.setAlpha(stuck ? 1 : 0.75);
+    const v = this.game_.view;
+    if (v?.hint) { this.showTip(v.hint); v.hint = null; }
   }
 }
