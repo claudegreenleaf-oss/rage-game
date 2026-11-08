@@ -373,8 +373,15 @@ function updateDoors(w: World): void {
       d.x += sweepX(d, d.vx, solids).d;
       const ry = sweepY(d, d.vy, solids);
       d.y += ry.d;
-      if (ry.hit && d.vy > 0) { d.state = 'run'; d.vy = 0; d.vx = 0; d.cooldown = 12; }
-      else if (ry.hit) d.vy = 0;
+      if (ry.hit && d.vy > 0) {
+        d.state = 'run'; d.vy = 0; d.vx = 0;
+        // Landed next to Pip anyway (Pip ran the same way)? Hop straight back over.
+        if (w.pipAlive) {
+          const dxp = p.x + (p.w >> 1) - (d.x + (d.w >> 1));
+          const gap = dxp > 0 ? p.x - (d.x + d.w) : d.x - (p.x + p.w);
+          if (gap <= HOP_TRIGGER && Math.abs(p.y + p.h - (d.y + d.h)) < 2 * U) startHop(w, d, dxp > 0 ? -1 : 1);
+        }
+      } else if (ry.hit) d.vy = 0;
       continue;
     }
 
@@ -411,7 +418,7 @@ function updateDoors(w: World): void {
     }
     if (d.state !== 'run') w.fx.push({ t: 'doorScurry', id: d.id });
     d.state = 'run';
-    if (gap <= HOP_TRIGGER && d.cooldown === 0) startHop(w, d, dir);
+    if (gap <= HOP_TRIGGER) startHop(w, d, dir);
   }
 }
 
